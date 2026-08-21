@@ -58,6 +58,10 @@ services:
     container_name: prihora-worker
     restart: unless-stopped
     command: python -m app.cli worker
+    # Usa a imagem da API, que traz um healthcheck HTTP. O worker nao serve
+    # HTTP nenhum, entao esse teste falharia sempre.
+    healthcheck:
+      disable: true
     environment:
       ENV: ${ENV:-development}
       POSTGRES_USER: ${POSTGRES_USER:-prihora}
