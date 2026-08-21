@@ -1,0 +1,106 @@
+# Base compartilhada entre dev e prod.
+# Nao suba este arquivo sozinho - use `make dev` ou `make prod`.
+name: prihora
+
+services:
+  db:
+    image: postgres:16-alpine
+    container_name: prihora-db
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-prihora}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-prihora_dev_password}
+      POSTGRES_DB: ${POSTGRES_DB:-prihora}
+      PGDATA: /var/lib/postgresql/data/pgdata
+    volumes:
+      - db_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-prihora} -d ${POSTGRES_DB:-prihora}"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+      start_period: 10s
+    networks: [prihora]
+
+  backend:
+    container_name: prihora-api
+    restart: unless-stopped
+    environment:
+      ENV: ${ENV:-development}
+      POSTGRES_USER: ${POSTGRES_USER:-prihora}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-prihora_dev_password}
+      POSTGRES_DB: ${POSTGRES_DB:-prihora}
+      POSTGRES_HOST: db
+      POSTGRES_PORT: 5432
+      SECRET_KEY: ${SECRET_KEY:-dev-secret-change-me}
+      ACCESS_TOKEN_EXPIRE_MINUTES: ${ACCESS_TOKEN_EXPIRE_MINUTES:-10080}
+      BACKEND_CORS_ORIGINS: ${BACKEND_CORS_ORIGINS:-http://localhost:3000}
+      ADMIN_EMAIL: ${ADMIN_EMAIL:-admin@prihora.pt}
+      ADMIN_PASSWORD: ${ADMIN_PASSWORD:-admin123}
+      ADMIN_NAME: ${ADMIN_NAME:-Administrador}
+      SEED_DEMO_DATA: ${SEED_DEMO_DATA:-true}
+      WHATSAPP_URL: http://whatsapp:4000
+      WHATSAPP_TOKEN: ${WHATSAPP_TOKEN:-troque-este-segredo-interno}
+      WHATSAPP_ENABLED: ${WHATSAPP_ENABLED:-true}
+      GEOCODING_ENABLED: ${GEOCODING_ENABLED:-true}
+      GEOCODING_URL: ${GEOCODING_URL:-https://nominatim.openstreetmap.org/reverse}
+    volumes:
+      # Fotos de perfil enviadas pelos profissionais.
+      - media_data:/app/media
+    depends_on:
+      db:
+        condition: service_healthy
+    networks: [prihora]
+
+  # Aplica os lembretes de minuto a minuto. Fica a parte de quem serve os
+  # pedidos: assim o envio nao compete com o trafego do site.
+  worker:
+    container_name: prihora-worker
+    restart: unless-stopped
+    command: python -m app.cli worker
+    environment:
+      ENV: ${ENV:-development}
+      POSTGRES_USER: ${POSTGRES_USER:-prihora}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-prihora_dev_password}
+      POSTGRES_DB: ${POSTGRES_DB:-prihora}
+      POSTGRES_HOST: db
+      POSTGRES_PORT: 5432
+      SECRET_KEY: ${SECRET_KEY:-dev-secret-change-me}
+      WHATSAPP_URL: http://whatsapp:4000
+      WHATSAPP_TOKEN: ${WHATSAPP_TOKEN:-troque-este-segredo-interno}
+      WHATSAPP_ENABLED: ${WHATSAPP_ENABLED:-true}
+    depends_on:
+      db:
+        condition: service_healthy
+    networks: [prihora]
+
+  # Sessoes de WhatsApp, uma por profissional, sobre a biblioteca Baileys.
+  # Nunca e exposto no host: so o backend fala com ele.
+  whatsapp:
+    container_name: prihora-whatsapp
+    restart: unless-stopped
+    environment:
+      PORT: 4000
+      SERVICE_TOKEN: ${WHATSAPP_TOKEN:-troque-este-segredo-interno}
+      SESSIONS_DIR: /data/sessions
+      LOG_LEVEL: ${WHATSAPP_LOG_LEVEL:-info}
+    volumes:
+      # Credenciais das sessoes: sem isto, cada reinicio pediria o QR de novo.
+      - whatsapp_data:/data
+    networks: [prihora]
+
+  frontend:
+    container_name: prihora-web
+    restart: unless-stopped
+    depends_on:
+      - backend
+    networks: [prihora]
+
+volumes:
+  db_data:
+  media_data:
+  whatsapp_data:
+
+networks:
+  prihora:
+    driver: bridge

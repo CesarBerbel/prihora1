@@ -1,0 +1,20 @@
+{
+  "name": "prihora-whatsapp",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "description": "Sessoes de WhatsApp por profissional, sobre a biblioteca Baileys.",
+  "main": "src/server.js",
+  "scripts": {
+    "start": "node src/server.js",
+    "dev": "node --watch src/server.js",
+    "test": "node --test src/*.test.js"
+  },
+  "dependencies": {
+    "@hapi/boom": "10.0.1",
+    "@whiskeysockets/baileys": "6.7.9",
+    "express": "4.21.2",
+    "pino": "9.6.0",
+    "qrcode": "1.5.4"
+  }
+}

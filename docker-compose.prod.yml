@@ -1,0 +1,61 @@
+# Overrides de PRODUCAO: imagens otimizadas, sem bind mounts, nginx na frente.
+# Somente o nginx expoe porta no host.
+services:
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+      target: prod
+    command: >
+      gunicorn app.main:app
+      --worker-class uvicorn.workers.UvicornWorker
+      --workers ${WEB_CONCURRENCY:-3}
+      --bind 0.0.0.0:8000
+      --timeout 60
+      --access-logfile -
+    environment:
+      ENV: production
+    expose:
+      - "8000"
+
+  worker:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+      target: prod
+
+  whatsapp:
+    build:
+      context: ./whatsapp
+      dockerfile: Dockerfile
+      target: prod
+    expose:
+      - "4000"
+
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+      target: prod
+      args:
+        NEXT_PUBLIC_API_URL: ${PUBLIC_API_ORIGIN:-/}
+        NEXT_PUBLIC_SITE_NAME: ${NEXT_PUBLIC_SITE_NAME:-prihora}
+    environment:
+      NODE_ENV: production
+      API_INTERNAL_URL: http://backend:8000
+      NEXT_PUBLIC_API_URL: ${PUBLIC_API_ORIGIN:-/}
+    expose:
+      - "3000"
+
+  nginx:
+    image: nginx:1.27-alpine
+    container_name: prihora-proxy
+    restart: unless-stopped
+    depends_on:
+      - frontend
+      - backend
+    ports:
+      - "${PROD_HTTP_PORT:-80}:80"
+    volumes:
+      - ./infra/nginx/nginx.conf:/etc/nginx/conf.d/default.conf:ro
+    networks: [prihora]
