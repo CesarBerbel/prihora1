@@ -46,6 +46,8 @@ export interface ItemMenu {
 export const MENU: Record<Area, ItemMenu[]> = {
   cliente: [
     { href: "/buscar", label: "Procurar profissionais" },
+    // Quem marcou sem conta so tem o codigo. Estava a um so link, no rodape.
+    { href: "/agendamento", label: "A minha marcação" },
     { href: "/como-funciona", label: "Como funciona" },
     { href: "/para-profissionais", label: "Sou profissional", troca: true },
   ],

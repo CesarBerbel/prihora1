@@ -17,13 +17,17 @@ export const PANEL_NAV: NavItem[] = [
   { href: "/painel/calendario", label: "Calendário" },
   { href: "/painel/agendamentos", label: "Marcações" },
   { href: "/painel/clientes", label: "Clientes" },
+  { href: "/painel/pacotes", label: "Pacotes" },
+  { href: "/painel/avaliacoes", label: "Avaliações" },
   { href: "/painel/financeiro", label: "Financeiro" },
+  { href: "/painel/relatorios", label: "Relatórios" },
 ];
 
 export const ADMIN_NAV: NavItem[] = [
   { href: "/admin", label: "Visao geral" },
   { href: "/admin/profissionais", label: "Profissionais" },
-  { href: "/admin/usuarios", label: "Contas" },
+  { href: "/admin/usuarios", label: "Clientes" },
+  { href: "/admin/especialidades", label: "Especialidades" },
   { href: "/admin/planos", label: "Planos" },
   { href: "/admin/agendamentos", label: "Marcações" },
   { href: "/admin/auditoria", label: "Auditoria" },

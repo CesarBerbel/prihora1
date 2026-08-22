@@ -8,6 +8,7 @@ from sqlalchemy import Date, cast, func, select
 from sqlalchemy.orm import selectinload
 
 from app.api.deps import AdminUser, DbSession
+from app.core.security import PREVIEW_MINUTES, create_preview_token
 from app.models import (
     AuditLog,
     Booking,
@@ -29,9 +30,11 @@ from app.schemas.admin import (
     AdminStats,
     AdminUserOut,
     AdminUserUpdate,
+    AdminCategoryOut,
     AuditLogOut,
+    PreviewLink,
 )
-from app.schemas.catalog import PlanOut, PlanUpsert
+from app.schemas.catalog import CategoryUpsert, PlanOut, PlanUpsert
 from app.schemas.common import Message, Page
 from app.schemas.booking import BookingOut
 
@@ -299,14 +302,26 @@ def list_users(
     admin: AdminUser,
     db: DbSession,
     q: str | None = Query(default=None),
-    role: UserRole | None = Query(default=None),
+    role: UserRole = Query(default=UserRole.CLIENT),
     is_active: bool | None = Query(default=None),
     page: int = Query(default=1, ge=1),
     per_page: int = Query(default=20, ge=1, le=100),
 ) -> Page[AdminUserOut]:
+    """As contas de quem marca.
+
+    Os profissionais têm o ecrã deles, com o que interessa a um perfil —
+    estado, plano, serviços. E as contas de administração não se gerem por
+    aqui: criam-se com `make admin`, à mão e com quem está ao pé do servidor,
+    que é a única forma de não haver um caminho para as criar pela internet.
+    """
+    if role == UserRole.ADMIN:
+        raise HTTPException(
+            status_code=400,
+            detail="As contas de administração criam-se pelo comando `make admin`.",
+        )
+
     query = select(User).options(selectinload(User.professional))
-    if role:
-        query = query.where(User.role == role)
+    query = query.where(User.role == role)
     if is_active is not None:
         query = query.where(User.is_active.is_(is_active))
     if q and q.strip():
@@ -468,3 +483,128 @@ def list_audit_logs(
 ) -> list[AuditLogOut]:
     rows = db.scalars(select(AuditLog).order_by(AuditLog.created_at.desc()).limit(limit)).all()
     return [AuditLogOut.model_validate(a) for a in rows]
+
+
+@router.post("/professionals/{professional_id}/preview", response_model=PreviewLink)
+def preview_link(
+    professional_id: int, admin: AdminUser, db: DbSession
+) -> PreviewLink:
+    """Uma ligação curta para ver o perfil antes de o aprovar.
+
+    A página do perfil é desenhada no servidor e não tem o token de quem a
+    pede — por isso a autorização viaja no próprio endereço. Dura meia hora e
+    vale para um perfil só.
+    """
+    professional = db.get(Professional, professional_id)
+    if not professional:
+        raise HTTPException(status_code=404, detail="Profissional não encontrado.")
+
+    token = create_preview_token(professional.id)
+    return PreviewLink(url=f"/p/{professional.slug}?preview={token}", expires_minutes=PREVIEW_MINUTES)
+
+
+# --------------------------------------------------------------- categorias ---
+def _categoria_ou_404(db: DbSession, category_id: int) -> Category:
+    categoria = db.get(Category, category_id)
+    if not categoria:
+        raise HTTPException(status_code=404, detail="Especialidade não encontrada.")
+    return categoria
+
+
+def _categoria_out(db: DbSession, categoria: Category) -> AdminCategoryOut:
+    saida = AdminCategoryOut.model_validate(categoria)
+    saida.professional_count = int(
+        db.scalar(
+            select(func.count(professional_categories.c.professional_id)).where(
+                professional_categories.c.category_id == categoria.id
+            )
+        )
+        or 0
+    )
+    return saida
+
+
+@router.get("/categories", response_model=list[AdminCategoryOut])
+def admin_list_categories(admin: AdminUser, db: DbSession) -> list[AdminCategoryOut]:
+    """Todas, incluindo as desligadas — a montra pública só mostra as ativas."""
+    linhas = db.scalars(
+        select(Category).order_by(Category.sort_order, Category.name)
+    ).all()
+    return [_categoria_out(db, c) for c in linhas]
+
+
+@router.post("/categories", response_model=AdminCategoryOut, status_code=status.HTTP_201_CREATED)
+def admin_create_category(
+    payload: CategoryUpsert, admin: AdminUser, db: DbSession
+) -> AdminCategoryOut:
+    slug = slugify(payload.slug or payload.name)
+    if db.scalar(select(Category.id).where(Category.slug == slug)):
+        raise HTTPException(status_code=409, detail="Já existe uma especialidade com este slug.")
+
+    categoria = Category(
+        slug=slug,
+        name=payload.name.strip(),
+        description=payload.description,
+        icon=payload.icon or "sparkles",
+        sort_order=payload.sort_order,
+        is_active=payload.is_active,
+    )
+    db.add(categoria)
+    db.commit()
+    db.refresh(categoria)
+    return _categoria_out(db, categoria)
+
+
+@router.put("/categories/{category_id}", response_model=AdminCategoryOut)
+def admin_update_category(
+    category_id: int, payload: CategoryUpsert, admin: AdminUser, db: DbSession
+) -> AdminCategoryOut:
+    categoria = _categoria_ou_404(db, category_id)
+
+    # Sem slug no pedido, fica o que estava. Derivá-lo do nome faria com que
+    # corrigir uma gralha no nome partisse os endereços de pesquisa que as
+    # pessoas guardaram — e sem ninguém pedir.
+    novo_slug = slugify(payload.slug) if payload.slug else categoria.slug
+    if novo_slug != categoria.slug:
+        if db.scalar(
+            select(Category.id).where(Category.slug == novo_slug, Category.id != categoria.id)
+        ):
+            raise HTTPException(
+                status_code=409, detail="Já existe uma especialidade com este slug."
+            )
+        # O slug anda nos endereços de pesquisa que as pessoas guardaram.
+        # Mudá-lo é uma decisão, não um efeito de mudar o nome.
+        categoria.slug = novo_slug
+
+    categoria.name = payload.name.strip()
+    categoria.description = payload.description
+    categoria.icon = payload.icon or "sparkles"
+    categoria.sort_order = payload.sort_order
+    categoria.is_active = payload.is_active
+
+    db.commit()
+    db.refresh(categoria)
+    return _categoria_out(db, categoria)
+
+
+@router.delete("/categories/{category_id}", response_model=Message)
+def admin_delete_category(category_id: int, admin: AdminUser, db: DbSession) -> Message:
+    categoria = _categoria_ou_404(db, category_id)
+
+    em_uso = db.scalar(
+        select(func.count(professional_categories.c.professional_id)).where(
+            professional_categories.c.category_id == categoria.id
+        )
+    )
+    if em_uso:
+        # Apagar arrancava a especialidade dos perfis que a escolheram, sem
+        # aviso e sem volta. Desligar tira-a da montra e das pesquisas novas.
+        categoria.is_active = False
+        db.commit()
+        return Message(
+            detail=f"Especialidade desligada: {em_uso} perfis ainda a usam e ficam como estão."
+        )
+
+    db.delete(categoria)
+    db.commit()
+    return Message(detail="Especialidade removida.")

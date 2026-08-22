@@ -2,7 +2,8 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 
-import { IconClose, IconTrash, IconUser } from "@/components/Icons";
+import Modal from "@/components/Modal";
+import { IconTrash, IconUser } from "@/components/Icons";
 import { ApiError, api, mediaUrl, upload } from "@/lib/api";
 import { centeredOffset, clampOffset, cropRect, drawnSize } from "@/lib/crop";
 import { avatarUrl } from "@/lib/format";
@@ -257,29 +258,16 @@ export default function AvatarUploader({ professional, onChange }: Props) {
 
       {/* ------------------------------------------------- editor de recorte --- */}
       {source && (
-        <div
-          className="fixed inset-0 z-50 grid place-items-center bg-ink-950/70 p-4"
-          role="dialog"
-          aria-modal="true"
-          aria-label="Recortar foto do perfil"
+        <Modal
+          title="Ajustar a foto"
+          subtitle="O que aparece no quadrado é exatamente o que vai para o seu perfil."
+          size="md"
+          onClose={closeEditor}
         >
-          <div className="w-full max-w-md rounded-xl2 bg-white shadow-lift">
-            <div className="flex items-center justify-between border-b border-ink-100 px-5 py-4">
-              <h2 className="font-bold">Ajustar a foto</h2>
-              <button
-                type="button"
-                onClick={closeEditor}
-                className="rounded-lg p-1.5 text-ink-400 hover:bg-ink-100 hover:text-ink-700"
-                aria-label="Fechar"
-              >
-                <IconClose className="h-5 w-5" />
-              </button>
-            </div>
-
-            <div className="p-5">
+          <div>
+            <div>
               <p className="mb-3 text-sm text-ink-500">
-                Arraste para posicionar e use o controle para aproximar. O que aparece no
-                quadrado e exatamente o que vai para o seu perfil.
+                Arraste para posicionar e use o controlo para aproximar.
               </p>
 
               <div
@@ -336,7 +324,7 @@ export default function AvatarUploader({ professional, onChange }: Props) {
               )}
             </div>
 
-            <div className="flex gap-2 border-t border-ink-100 px-5 py-4">
+            <div className="mt-5 flex gap-2 border-t border-ink-100 pt-4">
               <button type="button" onClick={save} disabled={busy} className="btn-primary flex-1">
                 {busy ? "A enviar..." : "Guardar foto"}
               </button>
@@ -345,7 +333,7 @@ export default function AvatarUploader({ professional, onChange }: Props) {
               </button>
             </div>
           </div>
-        </div>
+        </Modal>
       )}
     </div>
   );

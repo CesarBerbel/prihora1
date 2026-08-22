@@ -4,6 +4,7 @@ import { useCallback, useEffect, useState } from "react";
 
 import DashboardShell from "@/components/DashboardShell";
 import InternalBookingForm from "@/components/InternalBookingForm";
+import Modal from "@/components/Modal";
 import StatusChangeDialog from "@/components/StatusChangeDialog";
 import { IconWhatsapp } from "@/components/Icons";
 import { PANEL_NAV } from "@/components/PanelNav";
@@ -88,11 +89,9 @@ export default function AgendamentosPage() {
       nav={PANEL_NAV}
       allow={["professional"]}
       actions={
-        !creating && (
-          <button onClick={() => setCreating(true)} className="btn-primary btn-sm">
-            Nova marcação
-          </button>
-        )
+        <button onClick={() => setCreating(true)} className="btn-primary btn-sm">
+          Nova marcação
+        </button>
       }
     >
       {aMudar && (
@@ -108,13 +107,20 @@ export default function AgendamentosPage() {
       )}
 
       {creating && (
-        <InternalBookingForm
-          onCreated={() => {
-            setCreating(false);
-            void load();
-          }}
-          onCancel={() => setCreating(false)}
-        />
+        <Modal
+          title="Nova marcação"
+          subtitle="Entra na agenda mesmo fora do horário publicado — só não pode sobrepor outro atendimento."
+          size="xl"
+          onClose={() => setCreating(false)}
+        >
+          <InternalBookingForm
+            onCreated={() => {
+              setCreating(false);
+              void load();
+            }}
+            onCancel={() => setCreating(false)}
+          />
+        </Modal>
       )}
 
       {/* `-mx-1 px-1 py-1`: o contorno dos chips é desenhado fora da caixa,
@@ -181,7 +187,14 @@ export default function AgendamentosPage() {
                     </div>
 
                     <p className="mt-1.5 text-sm text-ink-600">
-                      {booking.service_name} | {formatPrice(booking.price_cents)}
+                      {booking.service_name} |{" "}
+                      {/* Zero por pacote não é zero por cortesia: dizer
+                          "Gratuito" a uma sessão já paga engana as contas. */}
+                      {booking.package_sale_id ? (
+                        <span className="font-medium text-brand-700">Pago no pacote</span>
+                      ) : (
+                        formatPrice(booking.price_cents)
+                      )}
                     </p>
                     <p className="mt-0.5 text-sm font-medium text-ink-800">
                       {formatDateTime(booking.starts_at)} as {formatTime(booking.ends_at)}

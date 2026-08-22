@@ -81,6 +81,14 @@ class ReviewOut(ORMModel):
     created_at: datetime
 
 
+class MyReviewOut(ReviewOut):
+    """A mesma avaliação, com o que só o dono do perfil precisa de ver."""
+
+    service_name: str | None = None
+    booking_code: str | None = None
+    is_published: bool = True
+
+
 class ReviewIn(BaseModel):
     booking_code: str = Field(min_length=4, max_length=12)
     rating: int = Field(ge=1, le=5)
@@ -101,6 +109,9 @@ class ProfessionalCard(ORMModel):
     neighborhood: str | None = None
     rating_avg: float
     rating_count: int
+    # Mostrado sempre, mesmo a zero: um perfil novo com "0 atendimentos" diz
+    # mais do que um perfil sem o número nenhum, que parece uma omissão.
+    completed_bookings: int = 0
     is_verified: bool
     is_featured: bool
     serves_at_home: bool
@@ -128,6 +139,7 @@ class ProfessionalPublic(ProfessionalCard):
     timezone: str = "Europe/Lisbon"
     min_notice_hours: int = 2
     max_advance_days: int = 60
+    cancel_notice_hours: int = 24
     completed_bookings: int = 0
     services: list[ServiceOut] = []
     availabilities: list[AvailabilityOut] = []
@@ -170,6 +182,7 @@ class ProfessionalUpdate(BaseModel):
     slot_interval_min: int | None = Field(default=None, ge=5, le=240)
     min_notice_hours: int | None = Field(default=None, ge=0, le=720)
     max_advance_days: int | None = Field(default=None, ge=1, le=365)
+    cancel_notice_hours: int | None = Field(default=None, ge=0, le=720)
     auto_confirm: bool | None = None
     category_ids: list[int] | None = None
     publish: bool | None = None

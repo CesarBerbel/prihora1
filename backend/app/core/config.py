@@ -26,6 +26,10 @@ class Settings(BaseSettings):
 
     BACKEND_CORS_ORIGINS: str = "http://localhost:3000"
 
+    # Endereço público do site, usado nas ligações que saem em mensagens.
+    # Em produção passa a ser o domínio real; aqui serve o de desenvolvimento.
+    SITE_URL: str = "http://localhost:3000"
+
     # Bootstrap do admin
     ADMIN_EMAIL: str = "admin@prihora.pt"
     ADMIN_PASSWORD: str = "admin123"

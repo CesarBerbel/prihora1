@@ -18,7 +18,7 @@ import type { Agenda, Booking, DayAgenda, ProfessionalPublic, Service } from "@/
 type Step = "serviço" | "horário" | "dados" | "pronto";
 
 export default function BookingWidget({ professional }: { professional: ProfessionalPublic }) {
-  const { user } = useSession();
+  const { user, professionalSlug } = useSession();
   const services = useMemo(
     () => professional.services.filter((item) => item.is_active),
     [professional.services],
@@ -130,6 +130,25 @@ export default function BookingWidget({ professional }: { professional: Professi
     setStep("serviço");
   }
 
+  // Um profissional não se marca a si próprio: o servidor recusa, e mostrar o
+  // formulário só levaria alguém a preencher tudo para ouvir "não". Bloquear
+  // tempo faz-se com uma folga, e é para lá que a mensagem aponta.
+  if (professionalSlug && professionalSlug === professional.slug) {
+    return (
+      <div className="card p-6 text-center">
+        <IconCalendar className="mx-auto h-8 w-8 text-ink-300" />
+        <h2 className="mt-3 font-bold">Esta agenda é sua</h2>
+        <p className="mx-auto mt-1.5 max-w-sm text-sm text-ink-500">
+          Não pode marcar consigo mesmo. Para reservar este tempo, bloqueie o período em{" "}
+          <Link href="/painel/agenda" className="font-semibold text-brand-600 hover:text-brand-700">
+            Configurações › Horários
+          </Link>
+          .
+        </p>
+      </div>
+    );
+  }
+
   if (services.length === 0) {
     return (
       <div className="card p-6 text-center">
@@ -152,12 +171,12 @@ export default function BookingWidget({ professional }: { professional: Professi
           </span>
           <h2 className="mt-4 text-lg font-bold text-emerald-900">
             {booking.status === "confirmed"
-              ? "Marcação confirmado!"
+              ? "Marcação confirmada!"
               : "Solicitação enviada!"}
           </h2>
           <p className="mx-auto mt-1.5 max-w-xs text-sm text-emerald-800">
             {booking.status === "confirmed"
-              ? "Seu horário esta reservado. Até breve!"
+              ? "O seu horário está reservado. Até breve!"
               : `${professional.display_name} vai confirmar em instantes.`}
           </p>
         </div>
@@ -174,7 +193,7 @@ export default function BookingWidget({ professional }: { professional: Professi
           <div className="flex justify-between gap-4 py-3">
             <dt className="text-ink-500">Quando</dt>
             <dd className="text-right font-medium">
-              {new Date(booking.starts_at).toLocaleString("pt-BR", {
+              {new Date(booking.starts_at).toLocaleString("pt-PT", {
                 weekday: "short",
                 day: "2-digit",
                 month: "2-digit",
@@ -191,8 +210,9 @@ export default function BookingWidget({ professional }: { professional: Professi
 
         <div className="space-y-2 border-t border-ink-100 p-6">
           <p className="text-xs leading-relaxed text-ink-500">
-            Guarde o código <strong className="font-mono">{booking.code}</strong>: com ele você
-            acompanha ou avalia o atendimento sem precisar de conta.
+            Guarde o código <strong className="font-mono">{booking.code}</strong>: com ele
+            acompanha ou avalia o atendimento sem precisar de conta. Também lho enviámos por
+            WhatsApp, com a ligação.
           </p>
           <Link href={`/agendamento?code=${booking.code}`} className="btn-secondary w-full">
             Acompanhar marcação

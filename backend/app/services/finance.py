@@ -18,7 +18,7 @@ dele começa e acaba.
 
 from calendar import monthrange
 from dataclasses import dataclass, field
-from datetime import date, datetime, timedelta, timezone
+from datetime import date, datetime, time, timedelta, timezone
 from zoneinfo import ZoneInfo
 
 from sqlalchemy import select
@@ -210,3 +210,142 @@ def resumo_do_mes(
 
     resumo.dias = [por_dia[d] for d in range(1, dias_no_mes + 1)]
     return resumo
+
+
+# --- relatórios ---------------------------------------------------------------
+
+
+@dataclass
+class LinhaRanking:
+    """Uma linha de um ranking: quem/o quê, quantos e quanto."""
+
+    nome: str
+    quantidade: int
+    bruto_cents: int
+
+
+@dataclass
+class Relatorio:
+    de: date
+    ate: date
+
+    concluidos: int
+    cancelados: int
+    faltas: int
+    receita_cents: int
+    ticket_medio_cents: int
+
+    novos_clientes: int
+    clientes_recorrentes: int
+
+    por_servico: list[LinhaRanking]
+    por_cliente: list[LinhaRanking]
+    por_dia_da_semana: list[LinhaRanking]
+    por_hora: list[LinhaRanking]
+
+    @property
+    def marcados(self) -> int:
+        return self.concluidos + self.cancelados + self.faltas
+
+    @property
+    def taxa_comparencia(self) -> float:
+        """Dos que foram marcados e chegaram ao fim, quantos aconteceram."""
+        total = self.marcados
+        return round(self.concluidos / total * 100, 1) if total else 0.0
+
+
+def relatorio(
+    db: Session, professional: Professional, de: date, ate: date
+) -> Relatorio:
+    """O que aconteceu entre duas datas, olhado de quatro ângulos.
+
+    Só conta o que já terminou — concluído, cancelado ou falta. O que ainda
+    está marcado é previsão, e previsão vive no financeiro; misturar as duas
+    coisas num relatório daria números que mudam sozinhos.
+    """
+    fuso = ZoneInfo(professional.timezone or "Europe/Lisbon")
+    inicio = datetime.combine(de, time.min, tzinfo=fuso)
+    fim = datetime.combine(ate, time.max, tzinfo=fuso)
+
+    marcacoes = db.scalars(
+        select(Booking).where(
+            Booking.professional_id == professional.id,
+            Booking.starts_at >= inicio,
+            Booking.starts_at <= fim,
+        )
+    ).all()
+
+    concluidas = [b for b in marcacoes if b.status == BookingStatus.COMPLETED]
+    receita = sum(b.price_cents or 0 for b in concluidas)
+
+    # Um cliente é novo se o primeiro atendimento concluído dele com este
+    # profissional cai dentro do período. Contá-lo pelo registo seria contar
+    # como novo quem já vinha há anos e só agora foi registado.
+    primeiras: dict[str, datetime] = {}
+    todas = db.scalars(
+        select(Booking).where(
+            Booking.professional_id == professional.id,
+            Booking.status == BookingStatus.COMPLETED,
+        )
+    ).all()
+    for b in todas:
+        chave = _chave_do_cliente(b)
+        if chave not in primeiras or b.starts_at < primeiras[chave]:
+            primeiras[chave] = b.starts_at
+
+    vistos = {_chave_do_cliente(b) for b in concluidas}
+    novos = sum(1 for chave in vistos if inicio <= primeiras[chave] <= fim)
+
+    return Relatorio(
+        de=de,
+        ate=ate,
+        concluidos=len(concluidas),
+        cancelados=sum(1 for b in marcacoes if b.status == BookingStatus.CANCELLED),
+        faltas=sum(1 for b in marcacoes if b.status == BookingStatus.NO_SHOW),
+        receita_cents=receita,
+        ticket_medio_cents=round(receita / len(concluidas)) if concluidas else 0,
+        novos_clientes=novos,
+        clientes_recorrentes=len(vistos) - novos,
+        por_servico=_ranking(concluidas, lambda b: b.service_name or "Sem nome"),
+        por_cliente=_ranking(concluidas, lambda b: b.client_name or "Sem nome"),
+        por_dia_da_semana=_ranking(
+            concluidas,
+            lambda b: DIAS_DA_SEMANA[b.starts_at.astimezone(fuso).weekday()],
+            ordenar=False,
+        ),
+        por_hora=_ranking(
+            concluidas,
+            lambda b: f"{b.starts_at.astimezone(fuso).hour:02d}h",
+            ordenar=False,
+        ),
+    )
+
+
+DIAS_DA_SEMANA = ["Segunda", "Terça", "Quarta", "Quinta", "Sexta", "Sábado", "Domingo"]
+
+
+def _chave_do_cliente(booking: Booking) -> str:
+    """Quem é o cliente, quando nem sempre há um registo por trás.
+
+    O telefone é o que identifica uma pessoa neste sistema — o nome repete-se
+    e o registo pode nem existir, porque marcar não obriga a ter conta.
+    """
+    if booking.professional_client_id:
+        return f"c{booking.professional_client_id}"
+    digitos = "".join(ch for ch in (booking.client_phone or "") if ch.isdigit())
+    return digitos or f"n{(booking.client_name or '').strip().lower()}"
+
+
+def _ranking(marcacoes, chave, *, ordenar: bool = True, limite: int = 10) -> list[LinhaRanking]:
+    contas: dict[str, LinhaRanking] = {}
+    for b in marcacoes:
+        nome = chave(b)
+        linha = contas.setdefault(nome, LinhaRanking(nome=nome, quantidade=0, bruto_cents=0))
+        linha.quantidade += 1
+        linha.bruto_cents += b.price_cents or 0
+
+    linhas = list(contas.values())
+    if ordenar:
+        linhas.sort(key=lambda l: (-l.bruto_cents, -l.quantidade, l.nome))
+        return linhas[:limite]
+    return linhas

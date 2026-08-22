@@ -112,6 +112,7 @@ export interface ProfessionalCard {
   neighborhood?: string | null;
   rating_avg: number;
   rating_count: number;
+  completed_bookings: number;
   is_verified: boolean;
   is_featured: boolean;
   serves_at_home: boolean;
@@ -137,7 +138,7 @@ export interface ProfessionalPublic extends ProfessionalCard {
   timezone: string;
   min_notice_hours: number;
   max_advance_days: number;
-  completed_bookings: number;
+  cancel_notice_hours: number;
   services: Service[];
   availabilities: Availability[];
   created_at: string;
@@ -192,11 +193,13 @@ export interface Booking {
   notes?: string | null;
   cancel_reason?: string | null;
   professional_client_id?: number | null;
+  package_sale_id?: number | null;
   created_by_professional?: boolean;
   created_at: string;
   professional_slug?: string | null;
   professional_name?: string | null;
   professional_avatar?: string | null;
+  already_reviewed?: boolean;
 }
 
 export interface Client {
@@ -428,4 +431,72 @@ export interface FinanceSummary {
   resultado_projetado_cents: number;
   dias: FinanceDay[];
   categorias: Record<string, string>;
+}
+
+/**
+ * A consulta pelo código traz a política já decidida pelo servidor: se ainda
+ * dá para mudar, até quando, e porque não. O ecrã só a mostra — repetir a
+ * regra no cliente daria duas versões dela que acabariam por divergir.
+ */
+export interface BookingLookup extends Booking {
+  professional_slug?: string | null;
+  professional_name?: string | null;
+  professional_whatsapp?: string | null;
+  can_change: boolean;
+  change_blocked_reason?: string | null;
+  change_deadline?: string | null;
+  cancel_notice_hours: number;
+  can_review: boolean;
+  already_reviewed: boolean;
+}
+
+// --- pacotes de serviços ------------------------------------------------------
+
+export type PackageKind = "sessions" | "combo";
+export type PackageSaleStatus = "active" | "used" | "expired" | "cancelled";
+
+export interface PackageService {
+  id: number;
+  name: string;
+  duration_min: number;
+  price_cents: number;
+}
+
+export interface ServicePackage {
+  id: number;
+  name: string;
+  description?: string | null;
+  kind: PackageKind;
+  price_cents: number;
+  sessions: number;
+  validity_days: number;
+  is_active: boolean;
+  created_at: string;
+  services: PackageService[];
+  /** Quanto custaria à parte, e quanto se poupa — a razão de ser do pacote. */
+  retail_cents: number;
+  savings_cents: number;
+  duration_min: number;
+  sold_count: number;
+}
+
+export interface PackageSale {
+  id: number;
+  package_id?: number | null;
+  client_id: number;
+  package_name: string;
+  kind: PackageKind;
+  price_cents: number;
+  sessions_total: number;
+  sessions_used: number;
+  sessions_left: number;
+  expires_on?: string | null;
+  status: PackageSaleStatus;
+  notes?: string | null;
+  created_at: string;
+  client_name?: string | null;
+  client_phone?: string | null;
+  services: PackageService[];
+  available: boolean;
+  unavailable_reason?: string | null;
 }

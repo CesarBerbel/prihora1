@@ -1,6 +1,13 @@
 import Link from "next/link";
 
-import { IconHome, IconPin, IconStar, IconVerified } from "@/components/Icons";
+import {
+  IconCheck,
+  IconHome,
+  IconPin,
+  IconSparkles,
+  IconStar,
+  IconVerified,
+} from "@/components/Icons";
 import { avatarUrl, formatDistance, formatPrice } from "@/lib/format";
 import type { ProfessionalCard as Card } from "@/lib/types";
 
@@ -39,14 +46,47 @@ export default function ProfessionalCardItem({ pro }: { pro: Card }) {
           )}
 
           <div className="mt-2 flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-ink-500">
-            {pro.rating_count > 0 ? (
-              <span className="inline-flex items-center gap-1 font-medium text-ink-700">
-                <IconStar className="h-3.5 w-3.5 text-amber-500" />
-                {pro.rating_avg.toFixed(1).replace(".", ",")}
-                <span className="font-normal text-ink-400">({pro.rating_count})</span>
+            {/* A nota e a contagem aparecem sempre, mesmo a zero: um perfil
+                novo que mostra "0,0 (0)" e "0 atendimentos" diz o que é, e um
+                perfil sem os números nenhuns parece um perfil incompleto. */}
+            <span
+              className={`inline-flex items-center gap-1 font-medium ${
+                pro.rating_count > 0 ? "text-ink-700" : "text-ink-400"
+              }`}
+              title={
+                pro.rating_count > 0
+                  ? `${pro.rating_count} ${pro.rating_count === 1 ? "avaliação" : "avaliações"}`
+                  : "Ainda sem avaliações"
+              }
+            >
+              <IconStar
+                className={`h-3.5 w-3.5 ${pro.rating_count > 0 ? "text-amber-500" : "text-ink-300"}`}
+              />
+              {pro.rating_avg.toFixed(1).replace(".", ",")}
+              <span className="font-normal text-ink-400">({pro.rating_count})</span>
+            </span>
+
+            {/* Zero atendimentos é um facto sem graça nenhuma e que assusta
+                quem lê. "Novo no prihora" diz o mesmo e diz melhor: não é um
+                mau histórico, é a falta de um. */}
+            {pro.completed_bookings > 0 ? (
+              <span
+                className="inline-flex items-center gap-1"
+                title={`${pro.completed_bookings} ${
+                  pro.completed_bookings === 1
+                    ? "atendimento concluído"
+                    : "atendimentos concluídos"
+                }`}
+              >
+                <IconCheck className="h-3.5 w-3.5" />
+                {pro.completed_bookings}{" "}
+                {pro.completed_bookings === 1 ? "atendimento" : "atendimentos"}
               </span>
             ) : (
-              <span className="text-ink-400">Sem avaliações ainda</span>
+              <span className="inline-flex items-center gap-1 font-medium text-brand-700">
+                <IconSparkles className="h-3.5 w-3.5" />
+                Novo no prihora
+              </span>
             )}
 
             {(pro.neighborhood || pro.city) && (

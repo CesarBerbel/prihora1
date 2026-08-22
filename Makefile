@@ -143,6 +143,13 @@ db-revision:
 seed:
 	@$(COMPOSE_DEV) exec -T backend python -m app.cli seed
 
+.PHONY: admin
+## admin: cria (ou promove) uma conta de administracao. Pede o que faltar.
+##   make admin
+##   make admin EMAIL=ana@prihora.pt NOME="Ana"
+admin:
+	@$(COMPOSE_DEV) exec -e EMAIL="$(EMAIL)" -e NOME="$(NOME)" -e PASSWORD="$(PASSWORD)" backend python -m app.scripts.create_admin
+
 .PHONY: reset
 reset:
 	@echo :: Isso apaga todos os dados locais.
@@ -219,5 +226,5 @@ banner-prod:
 	@echo API ......... http://localhost/api/v1
 	@echo ----------------------------------------------------------
 	@echo Antes de expor na internet, troque no .env:
-	@echo SECRET_KEY, ADMIN_PASSWORD e POSTGRES_PASSWORD.
+	@echo SECRET_KEY, ADMIN_PASSWORD, POSTGRES_PASSWORD e SITE_URL.
 	@echo ==========================================================

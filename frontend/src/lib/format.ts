@@ -1,6 +1,7 @@
 import { mediaUrl } from "@/lib/api";
 
 export { CURRENCY, LOCALE, formatMoney, formatPrice, formatPriceShort } from "@/lib/money";
+export { instagramHandle, instagramUrl, whatsappLink } from "@/lib/social";
 import { LOCALE } from "@/lib/money";
 
 export const WEEKDAYS = [
@@ -160,11 +161,6 @@ export function formatPhone(phone?: string | null): string {
 }
 
 /** Ligacao para o WhatsApp, sempre com o indicativo do pais. */
-export function whatsappLink(phone?: string | null): string | null {
-  const digits = phoneDigits(phone);
-  if (digits.length < NATIONAL_LENGTH) return null;
-  return `https://wa.me/${COUNTRY_CODE}${digits}`;
-}
 
 export const MESSAGE_STATUS_LABEL: Record<string, string> = {
   queued: "Na fila",

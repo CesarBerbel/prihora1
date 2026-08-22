@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useState } from "react";
 
 import DashboardShell from "@/components/DashboardShell";
+import Modal from "@/components/Modal";
 import { IconCalendar, IconTrash, IconUser, IconWhatsapp } from "@/components/Icons";
 import { PANEL_NAV } from "@/components/PanelNav";
 import { ApiError, api } from "@/lib/api";
@@ -162,10 +163,13 @@ export default function ClientesPage() {
       )}
 
       {open && (
-        <form onSubmit={submit} className="card mb-6 p-6">
-          <h2 className="font-bold">{editing ? `Editar ${editing.name}` : "Novo cliente"}</h2>
-
-          <div className="mt-4 grid gap-4 sm:grid-cols-2">
+        <Modal
+          title={editing ? `Editar ${editing.name}` : "Novo cliente"}
+          subtitle="Fica na sua lista, para marcar mais depressa da próxima vez."
+          onClose={() => setOpen(false)}
+        >
+          <form onSubmit={submit}>
+            <div className="grid gap-4 sm:grid-cols-2">
             <div>
               <label className="label" htmlFor="cli-nome">
                 Nome *
@@ -250,7 +254,8 @@ export default function ClientesPage() {
               Cancelar
             </button>
           </div>
-        </form>
+          </form>
+        </Modal>
       )}
 
       <div className="mb-5 flex flex-wrap items-center gap-3">
@@ -397,29 +402,13 @@ export default function ClientesPage() {
       )}
 
       {detail && (
-        <div
-          className="fixed inset-0 z-50 grid place-items-center bg-ink-950/70 p-4"
-          role="dialog"
-          aria-modal="true"
+        <Modal
+          title={detail.name}
+          subtitle={`Cliente desde ${formatDate(detail.created_at)}`}
+          size="md"
+          onClose={() => setDetail(null)}
         >
-          <div className="max-h-[85vh] w-full max-w-lg overflow-y-auto rounded-xl2 bg-white shadow-lift">
-            <div className="sticky top-0 flex items-start justify-between gap-3 border-b border-ink-100 bg-white px-6 py-4">
-              <div className="min-w-0">
-                <h2 className="truncate text-lg font-bold">{detail.name}</h2>
-                <p className="text-sm text-ink-500">
-                  Cliente desde {formatDate(detail.created_at)}
-                </p>
-              </div>
-              <button
-                onClick={() => setDetail(null)}
-                className="btn-ghost btn-sm shrink-0"
-                aria-label="Fechar"
-              >
-                Fechar
-              </button>
-            </div>
-
-            <div className="space-y-5 p-6">
+          <div className="space-y-5">
               <dl className="grid gap-3 text-sm sm:grid-cols-2">
                 {[
                   ["Telefone", detail.phone],
@@ -474,10 +463,9 @@ export default function ClientesPage() {
                     ))}
                   </ul>
                 )}
-              </div>
             </div>
           </div>
-        </div>
+        </Modal>
       )}
     </DashboardShell>
   );

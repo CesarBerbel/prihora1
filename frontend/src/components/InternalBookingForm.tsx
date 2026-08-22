@@ -4,7 +4,7 @@ import { useEffect, useMemo, useState } from "react";
 
 import { ApiError, api } from "@/lib/api";
 import { formatDuration, formatPrice, formatPhone } from "@/lib/format";
-import type { Booking, Client, Paged, Service } from "@/lib/types";
+import type { Booking, Client, PackageSale, Paged, Service } from "@/lib/types";
 
 interface Props {
   onCreated: () => void;
@@ -33,6 +33,9 @@ function paraLocal(data: Date): string {
 export default function InternalBookingForm({ onCreated, onCancel, inicio }: Props) {
   const [services, setServices] = useState<Service[]>([]);
   const [clients, setClients] = useState<Client[]>([]);
+  // Saldos de pacote do cliente escolhido. Só existem para fichas guardadas:
+  // um pacote pertence a alguém, e alguém aqui é uma ficha.
+  const [saldos, setSaldos] = useState<PackageSale[]>([]);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -40,6 +43,7 @@ export default function InternalBookingForm({ onCreated, onCancel, inicio }: Pro
     starts_at: inicio ? paraLocal(inicio) : agoraLocal(),
     service_id: "" as string,
     service_name: AVULSO,
+    package_sale_id: "" as string,
     duration_min: 60,
     price_cents: "",
     client_id: "" as string,
@@ -84,10 +88,36 @@ export default function InternalBookingForm({ onCreated, onCancel, inicio }: Pro
     }));
   }
 
+  // Ao trocar de cliente, os saldos são outros — e o que estava escolhido
+  // deixa de valer.
+  useEffect(() => {
+    const id = form.client_id;
+    if (!id) {
+      setSaldos([]);
+      return;
+    }
+    let cancelado = false;
+    api
+      .get<PackageSale[]>("/me/package-sales", {
+        params: { client_id: Number(id), only_active: true },
+        auth: true,
+      })
+      .then((lista) => {
+        if (!cancelado) setSaldos(lista);
+      })
+      .catch(() => {
+        if (!cancelado) setSaldos([]);
+      });
+    return () => {
+      cancelado = true;
+    };
+  }, [form.client_id]);
+
   function pickClient(value: string) {
     const client = clients.find((c) => String(c.id) === value);
     setForm((current) => ({
       ...current,
+      package_sale_id: "",
       client_id: value,
       client_name: client ? client.name : "",
       client_phone: client ? (client.phone ?? "") : "",
@@ -118,8 +148,16 @@ export default function InternalBookingForm({ onCreated, onCancel, inicio }: Pro
         price_cents: parsePrice(form.price_cents),
       };
 
-      if (form.service_id) payload.service_id = Number(form.service_id);
-      else payload.service_name = form.service_name.trim() || AVULSO;
+      if (form.package_sale_id) {
+        // Com pacote, o serviço, a duração e o preço saem de lá.
+        payload.package_sale_id = Number(form.package_sale_id);
+        delete payload.duration_min;
+        delete payload.price_cents;
+      } else if (form.service_id) {
+        payload.service_id = Number(form.service_id);
+      } else {
+        payload.service_name = form.service_name.trim() || AVULSO;
+      }
 
       if (form.client_id) {
         payload.client_id = Number(form.client_id);
@@ -142,19 +180,15 @@ export default function InternalBookingForm({ onCreated, onCancel, inicio }: Pro
   }
 
   return (
-    <form onSubmit={submit} className="card mb-6 p-6">
-      <h2 className="font-bold">Nova marcação</h2>
-      <p className="mt-1 text-sm text-ink-500">
-        Lancamento seu: vale fora do horário de atendimento e por cima de bloqueios. A única
-        trava e não ter outro atendimento no mesmo horário.
-      </p>
-
+    // Sem moldura própria: o título, o fecho e o cartão vêm da janela que o
+    // monta. Duplicá-los aqui daria dois títulos e duas bordas.
+    <form onSubmit={submit}>
       {error && (
-        <p className="mt-4 rounded-xl bg-rose-50 px-4 py-3 text-sm text-rose-700">{error}</p>
+        <p className="mb-4 rounded-xl bg-rose-50 px-4 py-3 text-sm text-rose-700">{error}</p>
       )}
 
       {/* -------------------------------------------------------- cliente --- */}
-      <fieldset className="mt-5">
+      <fieldset>
         <legend className="label">Cliente</legend>
         <select
           className="input"
@@ -222,8 +256,36 @@ export default function InternalBookingForm({ onCreated, onCancel, inicio }: Pro
         )}
       </fieldset>
 
+      {/* --------------------------------------------------------- pacote --- */}
+      {saldos.length > 0 && (
+        <fieldset className="mt-6">
+          <legend className="label">Pacote</legend>
+          <select
+            id="ag-pacote"
+            className="input"
+            value={form.package_sale_id}
+            onChange={(event) => setForm({ ...form, package_sale_id: event.target.value })}
+            aria-label="Gastar uma sessão de um pacote"
+          >
+            <option value="">Não usar pacote</option>
+            {saldos.map((saldo) => (
+              <option key={saldo.id} value={saldo.id}>
+                {saldo.package_name} — {saldo.sessions_left} de {saldo.sessions_total} por usar
+                {saldo.expires_on ? ` (até ${saldo.expires_on.split("-").reverse().join("/")})` : ""}
+              </option>
+            ))}
+          </select>
+          {form.package_sale_id && (
+            <p className="field-hint">
+              O serviço e a duração vêm do pacote, e o valor fica a zero — já foi pago na
+              venda. Cancelar esta marcação devolve a sessão ao saldo.
+            </p>
+          )}
+        </fieldset>
+      )}
+
       {/* -------------------------------------------------------- serviço --- */}
-      <fieldset className="mt-6">
+      <fieldset className={form.package_sale_id ? "mt-6 hidden" : "mt-6"}>
         <legend className="label">Serviço</legend>
         <select
           className="input"
@@ -265,7 +327,11 @@ export default function InternalBookingForm({ onCreated, onCancel, inicio }: Pro
       </fieldset>
 
       {/* --------------------------------------------------------- quando --- */}
-      <div className="mt-6 grid gap-4 sm:grid-cols-3">
+      <div
+        className={`mt-6 grid gap-4 ${
+          form.package_sale_id ? "sm:grid-cols-1" : "sm:grid-cols-3"
+        }`}
+      >
         <div>
           <label className="label" htmlFor="ag-quando">
             Data e hora *
@@ -279,7 +345,7 @@ export default function InternalBookingForm({ onCreated, onCancel, inicio }: Pro
             onChange={(event) => setForm({ ...form, starts_at: event.target.value })}
           />
         </div>
-        <div>
+        <div className={form.package_sale_id ? "hidden" : ""}>
           <label className="label" htmlFor="ag-duracao">
             Duração (min) *
           </label>
@@ -295,9 +361,9 @@ export default function InternalBookingForm({ onCreated, onCancel, inicio }: Pro
             onChange={(event) => setForm({ ...form, duration_min: Number(event.target.value) })}
           />
         </div>
-        <div>
+        <div className={form.package_sale_id ? "hidden" : ""}>
           <label className="label" htmlFor="ag-preço">
-            Valor (R$)
+            Valor (€)
           </label>
           <input
             id="ag-preço"

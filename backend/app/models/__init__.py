@@ -6,6 +6,7 @@ from app.models.client import ProfessionalClient, phone_digits
 from app.models.finance import Expense
 from app.models.message import Message, WhatsappSession
 from app.models.notification import NotificationRule
+from app.models.package import PackageItem, PackageSale, ServicePackage
 from app.models.enums import (
     BillingInterval,
     BookingStatus,
@@ -13,6 +14,8 @@ from app.models.enums import (
     MessageStatus,
     NotificationAudience,
     NotificationTrigger,
+    PackageKind,
+    PackageSaleStatus,
     ProfessionalStatus,
     SubscriptionStatus,
     UserRole,
@@ -28,6 +31,7 @@ __all__ = [
     "Service", "Subscription", "SubscriptionStatus", "TimeOff", "User", "UserRole",
     "NotificationAudience", "NotificationRule",
     "NotificationTrigger", "WhatsappSession",
+    "PackageItem", "PackageKind", "PackageSale", "PackageSaleStatus", "ServicePackage",
     "phone_digits",
     "professional_categories",
 ]

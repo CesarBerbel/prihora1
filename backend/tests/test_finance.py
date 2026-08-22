@@ -290,3 +290,86 @@ def test_um_mes_vazio_da_zeros_e_nao_estoiro(db, cenario):
     assert resumo.previsto.bruto_cents == 0
     assert resumo.resultado_cents == 0
     assert len(resumo.dias) == 28
+
+
+# --- pacotes de serviços -----------------------------------------------------
+def test_um_combinado_e_sempre_uma_sessao(db):
+    """Os serviços fazem-se de seguida: não há saldo para gastar depois."""
+    from app.models import PackageKind, ServicePackage
+    from app.services.packages import sessoes_do_pacote
+
+    combo = ServicePackage(kind=PackageKind.COMBO, sessions=5, name="x", price_cents=0)
+    assert sessoes_do_pacote(combo) == 1
+
+    sessoes = ServicePackage(kind=PackageKind.SESSIONS, sessions=5, name="x", price_cents=0)
+    assert sessoes_do_pacote(sessoes) == 5
+
+
+def test_o_saldo_conta_o_que_segura_o_credito(db):
+    """Cancelar devolve a sessão; concluir e faltar continuam a segurá-la.
+
+    O saldo sai da contagem das marcações e não de um contador incrementado à
+    mão — um contador fica errado à primeira exceção, e ninguém dá por isso
+    até faltar uma sessão ao cliente.
+    """
+    from app.models import BookingStatus
+    from app.services.packages import SEGURA_CREDITO
+
+    assert BookingStatus.CONFIRMED in SEGURA_CREDITO
+    assert BookingStatus.COMPLETED in SEGURA_CREDITO
+    assert BookingStatus.PENDING in SEGURA_CREDITO
+    # A falta consome: o horário foi reservado e perdido.
+    assert BookingStatus.NO_SHOW in SEGURA_CREDITO
+    # O cancelamento devolve.
+    assert BookingStatus.CANCELLED not in SEGURA_CREDITO
+
+
+def test_um_pacote_esgotado_ou_expirado_nao_marca_mais(db):
+    from datetime import date, timedelta
+
+    from app.models import PackageKind, PackageSale, PackageSaleStatus
+    from app.services.packages import esta_disponivel
+
+    hoje = date(2030, 5, 10)
+
+    def venda(**campos):
+        base = dict(
+            professional_id=1, client_id=1, package_name="x", kind=PackageKind.SESSIONS,
+            price_cents=0, sessions_total=5, sessions_used=0,
+            status=PackageSaleStatus.ACTIVE, expires_on=None,
+        )
+        base.update(campos)
+        return PackageSale(**base)
+
+    assert esta_disponivel(venda(), hoje=hoje)[0]
+    assert not esta_disponivel(venda(sessions_used=5), hoje=hoje)[0]
+    assert not esta_disponivel(venda(expires_on=hoje - timedelta(days=1)), hoje=hoje)[0]
+    # Expira hoje ainda dá: o prazo é até ao fim do dia.
+    assert esta_disponivel(venda(expires_on=hoje), hoje=hoje)[0]
+    assert not esta_disponivel(venda(status=PackageSaleStatus.CANCELLED), hoje=hoje)[0]
+
+
+def test_a_poupanca_e_a_razao_de_ser_do_pacote(db):
+    """O valor avulso de um pacote de sessões multiplica; o de um combinado soma."""
+    from app.models import PackageItem, PackageKind, ServicePackage
+    from app.services.packages import duracao_total, valor_avulso
+
+    class ServicoFalso:
+        def __init__(self, duracao, preco):
+            self.duration_min, self.price_cents = duracao, preco
+
+    a, b = ServicoFalso(45, 1400), ServicoFalso(90, 3000)
+
+    pacote = ServicePackage(kind=PackageKind.SESSIONS, sessions=5, name="x", price_cents=6000)
+    item = PackageItem(position=0)
+    item.service = a
+    pacote.items = [item]
+    assert valor_avulso(pacote) == 1400 * 5
+    assert duracao_total(pacote) == 45, "cada sessão é uma; não se somam"
+
+    combo = ServicePackage(kind=PackageKind.COMBO, name="y", price_cents=4000)
+    i1, i2 = PackageItem(position=0), PackageItem(position=1)
+    i1.service, i2.service = a, b
+    combo.items = [i1, i2]
+    assert valor_avulso(combo) == 1400 + 3000
+    assert duracao_total(combo) == 135, "acontecem de seguida: as durações somam"

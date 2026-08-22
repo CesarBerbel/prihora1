@@ -4,6 +4,7 @@ import Link from "next/link";
 import { useCallback, useEffect, useState } from "react";
 
 import DashboardShell from "@/components/DashboardShell";
+import Modal from "@/components/Modal";
 import { ADMIN_NAV } from "@/components/PanelNav";
 import { ApiError, api } from "@/lib/api";
 import {
@@ -29,6 +30,7 @@ export default function AdminProfissionaisPage() {
   const [plans, setPlans] = useState<Plan[]>([]);
   const [loading, setLoading] = useState(true);
   const [message, setMessage] = useState<{ kind: "ok" | "erro"; text: string } | null>(null);
+  const [aPrever, setAPrever] = useState<{ pro: AdminProfessional; url: string } | null>(null);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -58,6 +60,31 @@ export default function AdminProfissionaisPage() {
       .then(setPlans)
       .catch(() => setPlans([]));
   }, []);
+
+  /**
+   * Abre o perfil por aprovar numa janela nova.
+   *
+   * A página do perfil é desenhada no servidor e não tem a sessão de quem a
+   * pede, por isso a autorização viaja no endereço — uma ligação curta que o
+   * servidor emite e que vale só para este perfil.
+   */
+  async function prever(pro: AdminProfessional) {
+    try {
+      const { url } = await api.post<{ url: string; expires_minutes: number }>(
+        `/admin/professionals/${pro.id}/preview`,
+        undefined,
+        { auth: true },
+      );
+      // Numa janela, e não noutro separador: quem está a rever uma fila de
+      // perfis quer decidir e passar ao seguinte, sem perder o sítio na lista.
+      setAPrever({ pro, url });
+    } catch (error) {
+      setMessage({
+        kind: "erro",
+        text: error instanceof ApiError ? error.message : "Não foi possível abrir o perfil.",
+      });
+    }
+  }
 
   async function patch(pro: AdminProfessional, body: Record<string, unknown>, ok: string) {
     setMessage(null);
@@ -156,13 +183,23 @@ export default function AdminProfissionaisPage() {
                   {data.items.map((pro) => (
                     <tr key={pro.id} className="align-top hover:bg-ink-50/40">
                       <td className="px-5 py-4">
-                        <Link
-                          href={`/p/${pro.slug}`}
-                          target="_blank"
-                          className="font-semibold text-ink-900 hover:text-brand-700"
-                        >
-                          {pro.display_name}
-                        </Link>
+                        {pro.status === "active" ? (
+                          <Link
+                            href={`/p/${pro.slug}`}
+                            target="_blank"
+                            className="font-semibold text-ink-900 hover:text-brand-700"
+                          >
+                            {pro.display_name}
+                          </Link>
+                        ) : (
+                          <button
+                            onClick={() => void prever(pro)}
+                            className="text-left font-semibold text-ink-900 hover:text-brand-700"
+                            title="Ver o perfil como vai ficar publicado"
+                          >
+                            {pro.display_name}
+                          </button>
+                        )}
                         <p className="mt-0.5 text-xs text-ink-500">{pro.email}</p>
                         <p className="mt-0.5 text-xs text-ink-400">
                           {[pro.city, pro.state].filter(Boolean).join("/") || "Sem localização"}
@@ -215,23 +252,31 @@ export default function AdminProfissionaisPage() {
                         <p>{pro.services_count} serviços</p>
                         <p>{pro.bookings_count} marcações</p>
                         <p>
-                          {pro.rating_count > 0
-                            ? `${pro.rating_avg.toFixed(1).replace(".", ",")} (${pro.rating_count})`
-                            : "Sem notas"}
+                          {`${pro.rating_avg.toFixed(1).replace(".", ",")} (${pro.rating_count})`}
                         </p>
                       </td>
 
                       <td className="px-5 py-4">
                         <div className="flex flex-col gap-1.5">
                           {pro.status !== "active" && (
-                            <button
-                              onClick={() =>
-                                patch(pro, { status: "active" }, "Perfil aprovado e publicado.")
-                              }
-                              className="btn-primary btn-sm"
-                            >
-                              Aprovar
-                            </button>
+                            <>
+                              {/* Rever antes de aprovar: a ligação normal dava
+                                  404, porque o perfil ainda não está público. */}
+                              <button
+                                onClick={() => void prever(pro)}
+                                className="btn-secondary btn-sm"
+                              >
+                                Ver perfil
+                              </button>
+                              <button
+                                onClick={() =>
+                                  patch(pro, { status: "active" }, "Perfil aprovado e publicado.")
+                                }
+                                className="btn-primary btn-sm"
+                              >
+                                Aprovar
+                              </button>
+                            </>
                           )}
                           {pro.status !== "suspended" && (
                             <button onClick={() => suspend(pro)} className="btn-secondary btn-sm">
@@ -293,6 +338,49 @@ export default function AdminProfissionaisPage() {
             </div>
           )}
         </>
+      )}
+      {aPrever && (
+        <Modal
+          title={aPrever.pro.display_name}
+          subtitle="O perfil como vai ficar publicado. Decida sem sair da lista."
+          size="xl"
+          onClose={() => setAPrever(null)}
+        >
+          {/* O perfil vive numa página inteira, desenhada no servidor. Trazê-la
+              por dentro é copiá-la; mostrá-la assim é vê-la mesmo, tal como o
+              cliente a verá. */}
+          <iframe
+            src={aPrever.url}
+            title={`Pré-visualização de ${aPrever.pro.display_name}`}
+            className="h-[65vh] w-full rounded-xl border border-ink-100 bg-white"
+          />
+
+          <div className="mt-4 flex flex-wrap gap-2">
+            {aPrever.pro.status !== "active" && (
+              <button
+                onClick={async () => {
+                  const alvo = aPrever.pro;
+                  setAPrever(null);
+                  await patch(alvo, { status: "active" }, "Perfil aprovado e publicado.");
+                }}
+                className="btn-primary flex-1"
+              >
+                Aprovar e publicar
+              </button>
+            )}
+            <a
+              href={aPrever.url}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="btn-secondary"
+            >
+              Abrir num separador
+            </a>
+            <button onClick={() => setAPrever(null)} className="btn-ghost">
+              Fechar
+            </button>
+          </div>
+        </Modal>
       )}
     </DashboardShell>
   );

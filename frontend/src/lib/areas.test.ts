@@ -42,7 +42,12 @@ describe("areas do site", () => {
     assert.equal(CHAMADA.profissional?.href, "/para-profissionais/registo");
 
     const hrefs = MENU.cliente.map((item) => item.href);
-    assert.deepEqual(hrefs, ["/buscar", "/como-funciona", "/para-profissionais"]);
+    assert.deepEqual(hrefs, [
+      "/buscar",
+      "/agendamento",
+      "/como-funciona",
+      "/para-profissionais",
+    ]);
   });
 
   it("da a cada area exactamente uma saida para a outra", () => {

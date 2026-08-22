@@ -24,6 +24,10 @@ export interface Step {
 export function buildSteps(profile: ProfessionalPrivate | null): Step[] {
   const bio = (profile?.bio ?? "").trim();
   const cidade = (profile?.city ?? "").trim();
+  // A localidade diz em que pesquisas aparece; as coordenadas dizem em que
+  // posição. Sem elas o perfil fica sempre no fim, atrás de toda a gente —
+  // por isso o passo só conta como feito quando ambas existem.
+  const noMapa = profile?.latitude != null && profile?.longitude != null;
   const servicosAtivos = (profile?.services ?? []).filter((s) => s.is_active);
   const horarios = profile?.availabilities ?? [];
 
@@ -38,9 +42,9 @@ export function buildSteps(profile: ProfessionalPrivate | null): Step[] {
     {
       id: "local",
       titulo: "Diga onde atende",
-      resumo: "A localidade decide em que pesquisas aparece.",
+      resumo: "A localidade decide em que pesquisas aparece, e o mapa em que posição.",
       href: "/painel/perfil",
-      concluido: cidade.length > 0,
+      concluido: cidade.length > 0 && noMapa,
     },
     {
       id: "servicos",

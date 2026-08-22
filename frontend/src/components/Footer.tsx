@@ -6,11 +6,10 @@ const COLUMNS = [
   {
     title: "Para clientes",
     links: [
+      // Só o que também é menu. As especialidades mudam com o catálogo e
+      // ficavam desalinhadas do que a administração edita.
       { href: "/buscar", label: "Procurar profissionais" },
-      { href: "/buscar?category=manicure", label: "Manicure e pedicure" },
-      { href: "/buscar?category=tatuagem", label: "Tatuagem" },
-      { href: "/buscar?category=podologia", label: "Podologia" },
-      { href: "/agendamento", label: "Consultar marcação" },
+      { href: "/agendamento", label: "A minha marcação" },
       { href: "/como-funciona", label: "Como funciona" },
     ],
   },

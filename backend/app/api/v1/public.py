@@ -20,13 +20,25 @@ from app.models import (
     Service,
     professional_categories,
 )
-from app.schemas.booking import AgendaOut, BookingCreate, BookingOut
+from app.schemas.booking import (
+    AgendaOut,
+    BookingCreate,
+    BookingLookup,
+    BookingOut,
+    BookingReschedule,
+)
 from app.schemas.catalog import CategoryOut, CityOut, PlanOut, ReverseGeocodeOut
 from app.schemas.common import Page
 from app.schemas.professional import ProfessionalCard, ProfessionalPublic, ReviewIn, ReviewOut
-from app.services.agenda import build_agenda, slot_is_free
+from app.services.agenda import (
+    build_agenda,
+    can_client_change,
+    change_deadline,
+    slot_is_free,
+)
 from app.services.booking_code import new_booking_code
 from app.services.clients import find_or_create_client
+from app.core.security import preview_allows
 from app.services.geocoding import cidade_mais_perto
 from app.services.geocoding import reverse as reverse_geocode
 from app.services.notifications import dispatch
@@ -34,7 +46,7 @@ from app.services.notifications import dispatch
 router = APIRouter(tags=["publico"])
 
 
-def _get_active_professional(db: DbSession, slug: str) -> Professional:
+def _get_professional(db: DbSession, slug: str, *, preview: str | None = None) -> Professional:
     professional = db.scalar(
         select(Professional)
         .options(
@@ -46,7 +58,9 @@ def _get_active_professional(db: DbSession, slug: str) -> Professional:
     )
     if not professional:
         raise HTTPException(status_code=404, detail="Profissional não encontrado.")
-    if professional.status != ProfessionalStatus.ACTIVE:
+    if professional.status != ProfessionalStatus.ACTIVE and not preview_allows(
+        preview, professional.id
+    ):
         raise HTTPException(
             status_code=404, detail="Este perfil não está disponível de momento."
         )
@@ -260,8 +274,21 @@ def featured(db: DbSession, limit: int = Query(default=8, ge=1, le=24)) -> list[
 
 # ---------------------------------------------------------- perfil publico ---
 @router.get("/professionals/{slug}", response_model=ProfessionalPublic)
-def professional_detail(slug: str, db: DbSession) -> ProfessionalPublic:
-    professional = _get_active_professional(db, slug)
+def professional_detail(
+    slug: str,
+    db: DbSession,
+    preview: str | None = Query(default=None, description="Autorização de pré-visualização"),
+) -> ProfessionalPublic:
+    """O perfil público, ou o perfil por aprovar quando há autorização.
+
+    A pré-visualização não conta visita: quem está a rever um perfil não é
+    tráfego, e inflar o contador do profissional com as voltas da administração
+    seria mentir-lhe no painel.
+    """
+    professional = _get_professional(db, slug, preview=preview)
+    if professional.status != ProfessionalStatus.ACTIVE:
+        return _to_public(professional)
+
     professional.profile_views = (professional.profile_views or 0) + 1
     db.commit()
     db.refresh(professional)
@@ -270,9 +297,12 @@ def professional_detail(slug: str, db: DbSession) -> ProfessionalPublic:
 
 @router.get("/professionals/{slug}/reviews", response_model=list[ReviewOut])
 def professional_reviews(
-    slug: str, db: DbSession, limit: int = Query(default=20, ge=1, le=100)
+    slug: str,
+    db: DbSession,
+    limit: int = Query(default=20, ge=1, le=100),
+    preview: str | None = Query(default=None),
 ) -> list[ReviewOut]:
-    professional = _get_active_professional(db, slug)
+    professional = _get_professional(db, slug, preview=preview)
     rows = db.scalars(
         select(Review)
         .where(Review.professional_id == professional.id, Review.is_published.is_(True))
@@ -290,9 +320,10 @@ def professional_agenda(
     service_id: int | None = Query(default=None),
     date_from: date | None = Query(default=None),
     days: int = Query(default=14, ge=1, le=62),
+    preview: str | None = Query(default=None),
 ) -> AgendaOut:
     """Horarios livres do profissional, prontos para reserva."""
-    professional = _get_active_professional(db, slug)
+    professional = _get_professional(db, slug, preview=preview)
 
     duration = professional.slot_interval_min or 30
     if service_id is not None:
@@ -322,7 +353,18 @@ def create_booking(
     slug: str, payload: BookingCreate, db: DbSession, user: OptionalUser
 ) -> BookingOut:
     """Reserva um horario. Funciona com ou sem conta."""
-    professional = _get_active_professional(db, slug)
+    professional = _get_professional(db, slug)
+
+    # Um profissional não se marca a si próprio. O horário ficava ocupado sem
+    # que houvesse atendimento nenhum, a faturação contava um valor que ninguém
+    # pagou, e o aviso automático saía do WhatsApp dele para o WhatsApp dele.
+    # Para bloquear tempo há a folga, no ecrã de horários.
+    if user is not None and professional.user_id == user.id:
+        raise HTTPException(
+            status_code=400,
+            detail="Não pode marcar consigo mesmo. Para reservar este tempo, "
+            "bloqueie o período em Configurações › Horários.",
+        )
 
     service = db.get(Service, payload.service_id)
     if not service or service.professional_id != professional.id or not service.is_active:
@@ -394,19 +436,106 @@ def create_booking(
     return BookingOut.model_validate(booking)
 
 
-@router.get("/bookings/{code}", response_model=BookingOut)
-def booking_by_code(code: str, db: DbSession) -> BookingOut:
-    """Consulta de agendamento pelo codigo, para quem reservou sem conta."""
+def _booking_por_codigo(db: DbSession, code: str) -> tuple[Booking, Professional]:
     booking = db.scalar(select(Booking).where(Booking.code == code.upper().strip()))
     if not booking:
         raise HTTPException(status_code=404, detail="Marcação não encontrada.")
-    return BookingOut.model_validate(booking)
+    professional = db.get(Professional, booking.professional_id)
+    if not professional:
+        raise HTTPException(status_code=404, detail="Marcação não encontrada.")
+    return booking, professional
+
+
+def _lookup(db: DbSession, booking: Booking, professional: Professional) -> BookingLookup:
+    pode, motivo = can_client_change(professional, booking)
+    saida = BookingLookup.model_validate(booking)
+    saida.professional_slug = professional.slug
+    saida.professional_name = professional.display_name
+    saida.professional_whatsapp = professional.whatsapp or professional.public_phone
+    saida.can_change = pode
+    saida.change_blocked_reason = motivo or None
+    saida.change_deadline = change_deadline(professional, booking)
+    saida.cancel_notice_hours = max(0, int(professional.cancel_notice_hours or 0))
+
+    ja = db.scalar(select(Review.id).where(Review.booking_id == booking.id)) is not None
+    saida.already_reviewed = ja
+    saida.can_review = booking.status == BookingStatus.COMPLETED and not ja
+    return saida
+
+
+@router.get("/bookings/{code}", response_model=BookingLookup)
+def booking_by_code(code: str, db: DbSession) -> BookingLookup:
+    """Consulta de marcação pelo código, para quem reservou sem conta."""
+    booking, professional = _booking_por_codigo(db, code)
+    return _lookup(db, booking, professional)
+
+
+@router.post("/bookings/{code}/cancel", response_model=BookingLookup)
+def cancel_booking(code: str, db: DbSession) -> BookingLookup:
+    """Cancelamento pelo próprio cliente, dentro do prazo do profissional."""
+    booking, professional = _booking_por_codigo(db, code)
+
+    pode, motivo = can_client_change(professional, booking)
+    if not pode:
+        raise HTTPException(status_code=409, detail=motivo)
+
+    booking.status = BookingStatus.CANCELLED
+    booking.cancel_reason = "Cancelado pelo cliente."
+    db.commit()
+    db.refresh(booking)
+
+    dispatch(db, booking, NotificationTrigger.BOOKING_CANCELLED, professional=professional)
+    return _lookup(db, booking, professional)
+
+
+@router.patch("/bookings/{code}", response_model=BookingLookup)
+def reschedule_booking(code: str, payload: BookingReschedule, db: DbSession) -> BookingLookup:
+    """Remarcação pelo próprio cliente, para outro horário livre.
+
+    A duração é a que já estava: remarcar é mudar a hora, não o serviço. E o
+    horário novo passa pelas mesmas regras de um horário pedido de raiz — o
+    prazo de alteração diz respeito ao horário antigo, não abre exceções no
+    novo.
+    """
+    booking, professional = _booking_por_codigo(db, code)
+
+    pode, motivo = can_client_change(professional, booking)
+    if not pode:
+        raise HTTPException(status_code=409, detail=motivo)
+
+    duracao = booking.ends_at - booking.starts_at
+    inicio = payload.starts_at
+    if inicio.tzinfo is None:
+        inicio = inicio.replace(tzinfo=timezone.utc)
+    inicio = inicio.astimezone(timezone.utc)
+
+    if inicio == booking.starts_at:
+        return _lookup(db, booking, professional)
+
+    livre, razao = slot_is_free(
+        db, professional, inicio, inicio + duracao, exclude_booking_id=booking.id
+    )
+    if not livre:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=razao)
+
+    booking.starts_at = inicio
+    booking.ends_at = inicio + duracao
+    # Uma remarcação volta a precisar do aval de quem atende, a não ser que o
+    # profissional aceite marcações automaticamente.
+    booking.status = (
+        BookingStatus.CONFIRMED if professional.auto_confirm else BookingStatus.PENDING
+    )
+    db.commit()
+    db.refresh(booking)
+
+    dispatch(db, booking, NotificationTrigger.BOOKING_REQUESTED, professional=professional)
+    return _lookup(db, booking, professional)
 
 
 @router.post("/professionals/{slug}/reviews", response_model=ReviewOut, status_code=201)
 def create_review(slug: str, payload: ReviewIn, db: DbSession) -> ReviewOut:
     """Avaliacao liberada apenas para quem tem um atendimento concluido."""
-    professional = _get_active_professional(db, slug)
+    professional = _get_professional(db, slug)
 
     booking = db.scalar(
         select(Booking).where(

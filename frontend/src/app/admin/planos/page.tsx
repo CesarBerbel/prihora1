@@ -217,7 +217,7 @@ export default function AdminPlanosPage() {
 
             <div>
               <label className="label" htmlFor="plano-preço">
-                Preço (R$)
+                Preço (€)
               </label>
               <input
                 id="plano-preço"

@@ -62,3 +62,19 @@ class NotificationTrigger(str, enum.Enum):
 class NotificationAudience(str, enum.Enum):
     CLIENT = "client"
     PROFESSIONAL = "professional"
+
+
+class PackageKind(str, enum.Enum):
+    """Como o pacote se consome."""
+
+    # O mesmo serviço, várias vezes: fica um saldo que se gasta ao longo do tempo.
+    SESSIONS = "sessions"
+    # Serviços diferentes na mesma sessão: um atendimento só, mais longo.
+    COMBO = "combo"
+
+
+class PackageSaleStatus(str, enum.Enum):
+    ACTIVE = "active"
+    USED = "used"
+    EXPIRED = "expired"
+    CANCELLED = "cancelled"

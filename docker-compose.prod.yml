@@ -15,6 +15,9 @@ services:
       --access-logfile -
     environment:
       ENV: production
+      # Em produção o site é servido pelo nginx, não pela porta do Next.
+      # Troque por o domínio real: é este endereço que vai nas mensagens.
+      SITE_URL: ${SITE_URL:-http://localhost}
     expose:
       - "8000"
 

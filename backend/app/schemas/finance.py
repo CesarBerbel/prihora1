@@ -66,3 +66,31 @@ class FinanceSummaryOut(BaseModel):
 
     dias: list[DiaOut]
     categorias: dict[str, str]
+
+
+class LinhaRankingOut(BaseModel):
+    nome: str
+    quantidade: int
+    bruto_cents: int
+
+
+class RelatorioOut(BaseModel):
+    de: date
+    ate: date
+
+    concluidos: int
+    cancelados: int
+    faltas: int
+    marcados: int
+    taxa_comparencia: float
+
+    receita_cents: int
+    ticket_medio_cents: int
+
+    novos_clientes: int
+    clientes_recorrentes: int
+
+    por_servico: list[LinhaRankingOut]
+    por_cliente: list[LinhaRankingOut]
+    por_dia_da_semana: list[LinhaRankingOut]
+    por_hora: list[LinhaRankingOut]

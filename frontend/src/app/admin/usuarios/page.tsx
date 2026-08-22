@@ -21,8 +21,10 @@ const ROLE_STYLE: Record<UserRole, string> = {
 };
 
 export default function AdminUsuariosPage() {
-  const [role, setRole] = useState("");
   const [query, setQuery] = useState("");
+  // "" = todos. O estado é o que resta filtrar depois de a lista passar a
+  // ser só de clientes.
+  const [estado, setEstado] = useState("");
   const [page, setPage] = useState(1);
   const [data, setData] = useState<Paged<AdminUser> | null>(null);
   const [loading, setLoading] = useState(true);
@@ -32,7 +34,12 @@ export default function AdminUsuariosPage() {
     setLoading(true);
     try {
       const result = await api.get<Paged<AdminUser>>("/admin/users", {
-        params: { role: role || undefined, q: query || undefined, page, per_page: 20 },
+        params: {
+          q: query || undefined,
+          is_active: estado === "" ? undefined : estado === "ativos",
+          page,
+          per_page: 20,
+        },
         auth: true,
       });
       setData(result);
@@ -44,7 +51,7 @@ export default function AdminUsuariosPage() {
     } finally {
       setLoading(false);
     }
-  }, [role, query, page]);
+  }, [query, estado, page]);
 
   useEffect(() => {
     void load();
@@ -66,8 +73,8 @@ export default function AdminUsuariosPage() {
 
   return (
     <DashboardShell
-      title="Contas"
-      subtitle="Todos os utilizadores registados na plataforma."
+      title="Contas de clientes"
+      subtitle="Quem marca. Os profissionais estão em Profissionais, com o perfil e o plano."
       nav={ADMIN_NAV}
       allow={["admin"]}
     >
@@ -82,21 +89,20 @@ export default function AdminUsuariosPage() {
       )}
 
       <div className="mb-6 flex flex-wrap items-center gap-3">
-        <div className="flex gap-2">
+        <div className="scroll-soft -mx-1 flex gap-2 overflow-x-auto px-1 py-1">
           {[
             { value: "", label: "Todos" },
-            { value: "client", label: "Clientes" },
-            { value: "professional", label: "Profissionais" },
-            { value: "admin", label: "Admins" },
+            { value: "ativos", label: "Ativos" },
+            { value: "bloqueados", label: "Bloqueados" },
           ].map((item) => (
             <button
               key={item.value}
               onClick={() => {
-                setRole(item.value);
+                setEstado(item.value);
                 setPage(1);
               }}
-              className={`rounded-full px-4 py-2 text-sm font-medium transition ${
-                role === item.value
+              className={`shrink-0 rounded-full px-4 py-2 text-sm font-medium transition ${
+                estado === item.value
                   ? "bg-brand-600 text-white"
                   : "bg-white text-ink-600 ring-1 ring-ink-200 hover:bg-ink-50"
               }`}

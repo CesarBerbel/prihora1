@@ -1,6 +1,6 @@
 """Painel do profissional: perfil, servicos, agenda, agendamentos e plano."""
 
-from datetime import datetime, timedelta, timezone
+from datetime import date, datetime, timedelta, timezone
 from zoneinfo import ZoneInfo
 
 from fastapi import APIRouter, File, HTTPException, Query, UploadFile, status
@@ -17,7 +17,12 @@ from app.models import (
     Plan,
     Professional,
     ProfessionalStatus,
+    PackageItem,
+    PackageSale,
+    PackageSaleStatus,
+    Review,
     Service,
+    ServicePackage,
     Subscription,
     TimeOff,
 )
@@ -34,7 +39,16 @@ from app.schemas.booking import (
 from app.schemas.client import ClientDetail, ClientOut, ClientUpsert
 from app.schemas.catalog import PlanOut
 from app.schemas.common import Message, Page
+from app.schemas.package import (
+    PackageIn,
+    PackageOut,
+    PackageSaleIn,
+    PackageSaleOut,
+    PackageServiceOut,
+)
 from app.schemas.finance import (
+    LinhaRankingOut,
+    RelatorioOut,
     CommissionIn,
     DiaOut,
     ExpenseIn,
@@ -43,6 +57,7 @@ from app.schemas.finance import (
     LinhaOut,
 )
 from app.schemas.professional import (
+    MyReviewOut,
     AvailabilityBulk,
     AvailabilityOut,
     ProfessionalPrivate,
@@ -54,8 +69,17 @@ from app.schemas.professional import (
     TimeOffOut,
 )
 from app.services.agenda import bookings_in_window, has_booking_conflict
+from app.services.packages import (
+    duracao_total,
+    esta_disponivel,
+    recontar,
+    servicos_do_pacote,
+    valor_avulso,
+    vender,
+)
 from app.services.finance import (
     EXPENSE_CATEGORIES,
+    relatorio,
     despesas_do_mes,
     month_bounds,
     resumo_do_mes,
@@ -144,7 +168,12 @@ def update_my_profile(
                 )
             missing = []
             if not professional.city:
-                missing.append("cidade")
+                missing.append("a localidade")
+            # Sem coordenadas o perfil não entra na ordenação por proximidade:
+            # aparece sempre no fim, atrás de toda a gente. Publicar assim é
+            # publicar para não ser encontrado.
+            if professional.latitude is None or professional.longitude is None:
+                missing.append("a localização no mapa")
             if not db.scalar(
                 select(Service.id).where(
                     Service.professional_id == professional.id, Service.is_active.is_(True)
@@ -413,6 +442,14 @@ def update_booking_status(
     elif previous == BookingStatus.COMPLETED and payload.status != BookingStatus.COMPLETED:
         professional.completed_bookings = max((professional.completed_bookings or 0) - 1, 0)
 
+    # Cancelar uma marcação paga por pacote devolve a sessão ao saldo: o
+    # crédito só fica gasto enquanto houver um atendimento a segurá-lo.
+    if booking.package_sale_id:
+        venda = db.get(PackageSale, booking.package_sale_id)
+        if venda:
+            db.flush()
+            recontar(db, venda)
+
     db.commit()
     db.refresh(booking)
 
@@ -497,6 +534,14 @@ def my_stats(professional: CurrentProfessional, db: DbSession) -> dict:
 
 
 # ------------------------------------------------------------------ plano ---
+def _plano_atual(db: DbSession, professional: Professional) -> Plan | None:
+    """O plano em vigor, ou None para quem não tem subscrição nenhuma."""
+    subscricao = db.scalar(
+        select(Subscription).where(Subscription.professional_id == professional.id)
+    )
+    return subscricao.plan if subscricao else None
+
+
 @router.get("/subscription", response_model=SubscriptionOut | None)
 def my_subscription(professional: CurrentProfessional, db: DbSession) -> SubscriptionOut | None:
     subscription = db.scalar(
@@ -556,12 +601,24 @@ def my_appointments(user: CurrentUser, db: DbSession) -> list[BookingWithProfess
         .limit(100)
     ).all()
 
+    # Numa consulta só: convidar a avaliar o que já foi avaliado é o género de
+    # erro que faz a pessoa carregar no botão para ouvir "já avaliou".
+    avaliadas = {
+        linha[0]
+        for linha in db.execute(
+            select(Review.booking_id).where(
+                Review.booking_id.in_([b.id for b, _ in rows] or [0])
+            )
+        ).all()
+    }
+
     result = []
     for booking, professional in rows:
         item = BookingWithProfessional.model_validate(booking)
         item.professional_slug = professional.slug
         item.professional_name = professional.display_name
         item.professional_avatar = professional.avatar_url
+        item.already_reviewed = booking.id in avaliadas
         result.append(item)
     return result
 
@@ -714,8 +771,38 @@ def create_internal_booking(
     e pode registrar um encaixe, um horario extra ou um atendimento passado.
     A unica trava e nao ocupar o mesmo horario duas vezes.
     """
-    # --- servico: do catalogo ou avulso ---
-    if payload.service_id is not None:
+    # --- pacote: gasta uma sessao do saldo ---
+    venda = None
+    if payload.package_sale_id is not None:
+        venda = db.get(PackageSale, payload.package_sale_id)
+        if not venda or venda.professional_id != professional.id:
+            raise HTTPException(status_code=404, detail="Pacote não encontrado.")
+        if venda.client_id != payload.client_id:
+            raise HTTPException(status_code=400, detail="Este pacote é de outro cliente.")
+
+        recontar(db, venda)
+        disponivel, motivo = esta_disponivel(venda)
+        if not disponivel:
+            raise HTTPException(status_code=409, detail=motivo)
+
+    # --- servico: do pacote, do catalogo ou avulso ---
+    if venda is not None:
+        pacote = venda.package
+        servicos = servicos_do_pacote(db, pacote) if pacote else []
+        if not servicos:
+            raise HTTPException(
+                status_code=400,
+                detail="Este pacote já não tem serviços associados. Lance a marcação à parte.",
+            )
+        service_id = servicos[0].id if len(servicos) == 1 else None
+        # Num combinado o nome diz o que se vai fazer na sessão, por ordem.
+        service_name = (
+            servicos[0].name if len(servicos) == 1 else " + ".join(s.name for s in servicos)
+        )
+        duration = payload.duration_min or duracao_total(pacote)
+        # Já foi pago na venda do pacote: cobrar de novo contava duas vezes.
+        price = 0
+    elif payload.service_id is not None:
         service = db.get(Service, payload.service_id)
         if not service or service.professional_id != professional.id:
             raise HTTPException(status_code=404, detail="Serviço não encontrado.")
@@ -724,6 +811,7 @@ def create_internal_booking(
         duration = payload.duration_min or service.duration_min
         price = payload.price_cents if payload.price_cents is not None else service.price_cents
     else:
+
         service_id = None
         service_name = payload.service_name.strip()
         duration = payload.duration_min
@@ -775,11 +863,17 @@ def create_internal_booking(
         address_line=payload.address_line,
         notes=payload.notes,
         created_by_professional=True,
+        package_sale_id=venda.id if venda else None,
     )
     db.add(booking)
 
     if payload.status == BookingStatus.COMPLETED:
         professional.completed_bookings = (professional.completed_bookings or 0) + 1
+
+    if venda is not None:
+        # O saldo conta-se a partir das marcações, e agora há mais uma.
+        db.flush()
+        recontar(db, venda)
 
     db.commit()
     db.refresh(booking)
@@ -909,3 +1003,260 @@ def delete_expense(expense_id: int, professional: CurrentProfessional, db: DbSes
     db.delete(despesa)
     db.commit()
     return Message(detail="Despesa removida.")
+
+
+@router.get("/reviews", response_model=list[MyReviewOut])
+def my_reviews(
+    professional: CurrentProfessional,
+    db: DbSession,
+    limit: int = Query(default=50, ge=1, le=200),
+) -> list[MyReviewOut]:
+    """As avaliações que o profissional recebeu, da mais recente para trás.
+
+    Traz também o serviço a que cada uma diz respeito: uma nota de três sem
+    saber a que atendimento se refere não ajuda ninguém a melhorar.
+    """
+    linhas = db.execute(
+        select(Review, Booking.service_name, Booking.code)
+        .outerjoin(Booking, Booking.id == Review.booking_id)
+        .where(Review.professional_id == professional.id)
+        .order_by(Review.created_at.desc())
+        .limit(limit)
+    ).all()
+
+    saida: list[MyReviewOut] = []
+    for review, servico, codigo in linhas:
+        item = MyReviewOut.model_validate(review)
+        item.service_name = servico
+        item.booking_code = codigo
+        saida.append(item)
+    return saida
+
+
+@router.get("/reports", response_model=RelatorioOut)
+def my_report(
+    professional: CurrentProfessional,
+    db: DbSession,
+    de: date | None = Query(default=None),
+    ate: date | None = Query(default=None),
+) -> RelatorioOut:
+    """Relatórios de desempenho — uma vantagem dos planos que a incluem.
+
+    A verificação é aqui e não só no ecrã: esconder o menu não impede ninguém
+    de escrever o endereço, e o que se vende tem de ser o que se entrega.
+    """
+    plano = _plano_atual(db, professional)
+    if not (plano and plano.analytics):
+        raise HTTPException(
+            status_code=403,
+            detail="Os relatórios fazem parte dos planos Profissional e Estúdio.",
+        )
+
+    hoje = datetime.now(ZoneInfo(professional.timezone or "Europe/Lisbon")).date()
+    fim = ate or hoje
+    inicio = de or (fim - timedelta(days=29))
+    if inicio > fim:
+        inicio, fim = fim, inicio
+
+    dados = relatorio(db, professional, inicio, fim)
+    return RelatorioOut(
+        de=dados.de,
+        ate=dados.ate,
+        concluidos=dados.concluidos,
+        cancelados=dados.cancelados,
+        faltas=dados.faltas,
+        marcados=dados.marcados,
+        taxa_comparencia=dados.taxa_comparencia,
+        receita_cents=dados.receita_cents,
+        ticket_medio_cents=dados.ticket_medio_cents,
+        novos_clientes=dados.novos_clientes,
+        clientes_recorrentes=dados.clientes_recorrentes,
+        por_servico=[LinhaRankingOut(**vars(l)) for l in dados.por_servico],
+        por_cliente=[LinhaRankingOut(**vars(l)) for l in dados.por_cliente],
+        por_dia_da_semana=[LinhaRankingOut(**vars(l)) for l in dados.por_dia_da_semana],
+        por_hora=[LinhaRankingOut(**vars(l)) for l in dados.por_hora],
+    )
+
+
+# ------------------------------------------------------- pacotes de serviços ---
+def _pacote_ou_404(db: DbSession, professional: Professional, package_id: int) -> ServicePackage:
+    pacote = db.get(ServicePackage, package_id)
+    if not pacote or pacote.professional_id != professional.id:
+        raise HTTPException(status_code=404, detail="Pacote não encontrado.")
+    return pacote
+
+
+def _pacote_out(db: DbSession, pacote: ServicePackage) -> PackageOut:
+    servicos = servicos_do_pacote(db, pacote)
+    saida = PackageOut.model_validate(pacote)
+    saida.services = [
+        PackageServiceOut(
+            id=s.id, name=s.name, duration_min=s.duration_min, price_cents=s.price_cents
+        )
+        for s in servicos
+    ]
+    saida.retail_cents = valor_avulso(pacote)
+    saida.savings_cents = max(0, saida.retail_cents - pacote.price_cents)
+    saida.duration_min = duracao_total(pacote)
+    saida.sold_count = int(
+        db.scalar(select(func.count(PackageSale.id)).where(PackageSale.package_id == pacote.id))
+        or 0
+    )
+    return saida
+
+
+def _servicos_validos(db: DbSession, professional: Professional, ids: list[int]) -> list[Service]:
+    servicos = db.scalars(
+        select(Service).where(Service.id.in_(ids), Service.professional_id == professional.id)
+    ).all()
+    if len(servicos) != len(set(ids)):
+        raise HTTPException(status_code=400, detail="Serviço desconhecido no pacote.")
+    return list(servicos)
+
+
+@router.get("/packages", response_model=list[PackageOut])
+def list_packages(professional: CurrentProfessional, db: DbSession) -> list[PackageOut]:
+    pacotes = db.scalars(
+        select(ServicePackage)
+        .where(ServicePackage.professional_id == professional.id)
+        .order_by(ServicePackage.is_active.desc(), ServicePackage.name)
+    ).all()
+    return [_pacote_out(db, p) for p in pacotes]
+
+
+@router.post("/packages", response_model=PackageOut, status_code=status.HTTP_201_CREATED)
+def create_package(
+    payload: PackageIn, professional: CurrentProfessional, db: DbSession
+) -> PackageOut:
+    _servicos_validos(db, professional, payload.service_ids)
+
+    pacote = ServicePackage(
+        professional_id=professional.id,
+        name=payload.name.strip(),
+        description=payload.description,
+        kind=payload.kind,
+        price_cents=payload.price_cents,
+        sessions=payload.sessions,
+        validity_days=payload.validity_days,
+        is_active=payload.is_active,
+    )
+    pacote.items = [
+        PackageItem(service_id=sid, position=i) for i, sid in enumerate(payload.service_ids)
+    ]
+    db.add(pacote)
+    db.commit()
+    db.refresh(pacote)
+    return _pacote_out(db, pacote)
+
+
+@router.put("/packages/{package_id}", response_model=PackageOut)
+def update_package(
+    package_id: int, payload: PackageIn, professional: CurrentProfessional, db: DbSession
+) -> PackageOut:
+    pacote = _pacote_ou_404(db, professional, package_id)
+    _servicos_validos(db, professional, payload.service_ids)
+
+    pacote.name = payload.name.strip()
+    pacote.description = payload.description
+    pacote.kind = payload.kind
+    pacote.price_cents = payload.price_cents
+    pacote.sessions = payload.sessions
+    pacote.validity_days = payload.validity_days
+    pacote.is_active = payload.is_active
+    # Os saldos já vendidos não mexem: guardaram o preço e as sessões do dia
+    # da venda de propósito.
+    pacote.items = [
+        PackageItem(service_id=sid, position=i) for i, sid in enumerate(payload.service_ids)
+    ]
+
+    db.commit()
+    db.refresh(pacote)
+    return _pacote_out(db, pacote)
+
+
+@router.delete("/packages/{package_id}", response_model=Message)
+def delete_package(package_id: int, professional: CurrentProfessional, db: DbSession) -> Message:
+    pacote = _pacote_ou_404(db, professional, package_id)
+
+    vendidos = db.scalar(
+        select(func.count(PackageSale.id)).where(PackageSale.package_id == pacote.id)
+    )
+    if vendidos:
+        # Apagar levaria os saldos à frente. Desativar tira-o da montra e
+        # deixa quem comprou continuar a usar o que pagou.
+        pacote.is_active = False
+        db.commit()
+        return Message(detail="Pacote desativado. Quem já o comprou continua a poder usá-lo.")
+
+    db.delete(pacote)
+    db.commit()
+    return Message(detail="Pacote removido.")
+
+
+def _venda_out(db: DbSession, venda: PackageSale) -> PackageSaleOut:
+    recontar(db, venda)
+    saida = PackageSaleOut.model_validate(venda)
+    saida.sessions_left = venda.sessions_left
+    saida.client_name = venda.client.name if venda.client else None
+    saida.client_phone = venda.client.phone if venda.client else None
+
+    if venda.package:
+        saida.services = [
+            PackageServiceOut(
+                id=i.service.id,
+                name=i.service.name,
+                duration_min=i.service.duration_min,
+                price_cents=i.service.price_cents,
+            )
+            for i in sorted(venda.package.items, key=lambda x: (x.position, x.id))
+        ]
+
+    disponivel, motivo = esta_disponivel(venda)
+    saida.available = disponivel
+    saida.unavailable_reason = motivo or None
+    return saida
+
+
+@router.get("/package-sales", response_model=list[PackageSaleOut])
+def list_package_sales(
+    professional: CurrentProfessional,
+    db: DbSession,
+    client_id: int | None = Query(default=None),
+    only_active: bool = Query(default=False),
+) -> list[PackageSaleOut]:
+    """Os pacotes vendidos, com o saldo de cada um."""
+    query = select(PackageSale).where(PackageSale.professional_id == professional.id)
+    if client_id:
+        query = query.where(PackageSale.client_id == client_id)
+
+    vendas = db.scalars(query.order_by(PackageSale.created_at.desc()).limit(300)).all()
+    saida = [_venda_out(db, v) for v in vendas]
+    db.commit()
+
+    if only_active:
+        saida = [v for v in saida if v.available]
+    return saida
+
+
+@router.post("/package-sales", response_model=PackageSaleOut, status_code=status.HTTP_201_CREATED)
+def sell_package(
+    payload: PackageSaleIn, professional: CurrentProfessional, db: DbSession
+) -> PackageSaleOut:
+    pacote = _pacote_ou_404(db, professional, payload.package_id)
+    cliente = _client_or_404(db, professional, payload.client_id)
+
+    venda = vender(db, professional, pacote, cliente.id, notes=payload.notes)
+    db.commit()
+    db.refresh(venda)
+    return _venda_out(db, venda)
+
+
+@router.delete("/package-sales/{sale_id}", response_model=Message)
+def cancel_package_sale(sale_id: int, professional: CurrentProfessional, db: DbSession) -> Message:
+    venda = db.get(PackageSale, sale_id)
+    if not venda or venda.professional_id != professional.id:
+        raise HTTPException(status_code=404, detail="Pacote não encontrado.")
+
+    venda.status = PackageSaleStatus.CANCELLED
+    db.commit()
+    return Message(detail="Pacote cancelado. As marcações já feitas mantêm-se.")

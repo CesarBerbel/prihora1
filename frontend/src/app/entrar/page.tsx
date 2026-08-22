@@ -6,7 +6,7 @@ import { Suspense, useEffect, useState } from "react";
 
 import { IconSparkles } from "@/components/Icons";
 import { ApiError } from "@/lib/api";
-import { homeForRole, useSession } from "@/lib/auth";
+import { destinoAposLogin, useSession } from "@/lib/auth";
 
 function LoginForm() {
   const { login, user, loading: checkingSession } = useSession();
@@ -16,7 +16,7 @@ function LoginForm() {
 
   // Sessao ativa: vai direto para o painel em vez de pedir login de novo.
   useEffect(() => {
-    if (!checkingSession && user) router.replace(next || homeForRole(user.role));
+    if (!checkingSession && user) router.replace(destinoAposLogin(user.role, next));
   }, [checkingSession, user, next, router]);
 
   const [email, setEmail] = useState("");
@@ -30,7 +30,7 @@ function LoginForm() {
     setError(null);
     try {
       const data = await login(email, password);
-      router.replace(next || homeForRole(data.user.role));
+      router.replace(destinoAposLogin(data.user.role, next));
     } catch (err) {
       setError(err instanceof ApiError ? err.message : "Não foi possível entrar.");
     } finally {

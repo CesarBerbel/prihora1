@@ -123,13 +123,14 @@ export default function PainelPage() {
               tone="success"
             />
             <StatCard
-              label="Avaliação media"
-              value={
-                stats.rating_count > 0
-                  ? `${stats.rating_avg.toFixed(1).replace(".", ",")} / 5`
-                  : "Sem notas"
-              }
-              hint={`${stats.rating_count} avaliações | ${stats.profile_views} visitas`}
+              label="Avaliação média"
+              value={`${stats.rating_avg.toFixed(1).replace(".", ",")} / 5`}
+              // Sem o número de concluídos: aqui ele viria da contagem real de
+              // marcações, e no perfil público vem do contador do perfil. São
+              // duas fontes, e pô-las lado a lado convidava à comparação.
+              hint={`${stats.rating_count} ${
+                stats.rating_count === 1 ? "avaliação" : "avaliações"
+              } · ${stats.profile_views} visitas`}
             />
           </div>
         )

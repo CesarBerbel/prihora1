@@ -117,7 +117,10 @@ describe("menu do painel", () => {
       "/painel/calendario",
       "/painel/agendamentos",
       "/painel/clientes",
+      "/painel/pacotes",
+      "/painel/avaliacoes",
       "/painel/financeiro",
+      "/painel/relatorios",
     ]);
   });
 

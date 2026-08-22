@@ -1,7 +1,7 @@
 "use client";
 
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
-import { useCallback } from "react";
+import { useCallback, useState } from "react";
 
 import type { Category } from "@/lib/types";
 
@@ -12,6 +12,9 @@ const SORT_OPTIONS = [
   { value: "price", label: "Menor preço" },
   { value: "newest", label: "Novos no prihora" },
 ];
+
+/** Quantas especialidades ficam à vista antes de se pedir o resto. */
+const VISIVEIS_POR_OMISSAO = 6;
 
 const RADIUS_OPTIONS = [
   { value: "5", label: "Até 5 km" },
@@ -43,6 +46,15 @@ export default function SearchFilters({ categories }: { categories: Category[] }
   const radius = searchParams.get("radius_km") ?? "";
   const atHome = searchParams.get("at_home") === "1";
   const emDestaque = searchParams.get("featured") === "1";
+
+  const [todas, setTodas] = useState(false);
+  // A especialidade escolhida tem de estar sempre à vista, mesmo que fique
+  // fora das primeiras: escondê-la fazia o filtro activo parecer desligado.
+  const escolhidaEstaFora =
+    Boolean(category) &&
+    categories.findIndex((item) => item.slug === category) >= VISIVEIS_POR_OMISSAO;
+  const visiveis =
+    todas || escolhidaEstaFora ? categories : categories.slice(0, VISIVEIS_POR_OMISSAO);
 
   return (
     <div className="space-y-6 rounded-xl2 border border-ink-100 bg-white p-5 shadow-card">
@@ -114,7 +126,10 @@ export default function SearchFilters({ categories }: { categories: Category[] }
 
       <div>
         <span className="label">Especialidade</span>
-        <div className="max-h-72 space-y-0.5 overflow-y-auto pr-1">
+        {/* Sem barra de rolagem dentro da coluna: uma lista que rola dentro de
+            uma página que também rola faz o rato apanhar a errada. Mostra-se
+            um punhado e o resto abre a pedido. */}
+        <div className="space-y-0.5">
           <button
             onClick={() => update("category", null)}
             className={`flex w-full items-center justify-between rounded-lg px-3 py-2 text-left text-sm transition ${
@@ -125,7 +140,7 @@ export default function SearchFilters({ categories }: { categories: Category[] }
           >
             Todas
           </button>
-          {categories.map((item) => (
+          {visiveis.map((item) => (
             <button
               key={item.id}
               onClick={() => update("category", item.slug)}
@@ -139,6 +154,21 @@ export default function SearchFilters({ categories }: { categories: Category[] }
               <span className="shrink-0 text-xs text-ink-400">{item.professional_count ?? 0}</span>
             </button>
           ))}
+
+          {categories.length > VISIVEIS_POR_OMISSAO && (
+            <button
+              onClick={() => setTodas((valor) => !valor)}
+              aria-expanded={todas}
+              className="flex w-full items-center justify-center gap-1 rounded-lg px-3 py-2 text-sm font-semibold text-brand-600 transition hover:bg-brand-50"
+            >
+              {todas
+                ? "Mostrar menos"
+                : `Mostrar mais ${categories.length - VISIVEIS_POR_OMISSAO}`}
+              <span aria-hidden className={`text-[10px] transition ${todas ? "rotate-180" : ""}`}>
+                ▾
+              </span>
+            </button>
+          )}
         </div>
       </div>
     </div>

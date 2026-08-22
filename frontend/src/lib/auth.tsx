@@ -12,6 +12,7 @@ import {
 } from "react";
 
 import { api, getToken, setToken as persistToken } from "@/lib/api";
+export { destinoAposLogin, homeForRole, podeEntrarEm } from "@/lib/roles";
 import type { AuthResponse, User } from "@/lib/types";
 
 interface Session {
@@ -25,13 +26,6 @@ interface Session {
 }
 
 const SessionContext = createContext<Session | null>(null);
-
-/** Painel inicial de cada papel, usado após o login e no registo. */
-export function homeForRole(role: User["role"]): string {
-  if (role === "admin") return "/admin";
-  if (role === "professional") return "/painel";
-  return "/minha-conta";
-}
 
 export function SessionProvider({ children }: { children: React.ReactNode }) {
   const [user, setUser] = useState<User | null>(null);

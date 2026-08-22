@@ -2,7 +2,8 @@
 
 import { useEffect, useState } from "react";
 
-import { IconClose, IconWhatsapp } from "@/components/Icons";
+import Modal from "@/components/Modal";
+import { IconWhatsapp } from "@/components/Icons";
 import { ApiError, api } from "@/lib/api";
 import { BOOKING_STATUS_LABEL } from "@/lib/format";
 import type { Booking, BookingStatus, StatusChangePreview } from "@/lib/types";
@@ -68,32 +69,13 @@ export default function StatusChangeDialog({
   }
 
   return (
-    <div
-      className="fixed inset-0 z-50 grid place-items-center bg-ink-950/70 p-4"
-      role="dialog"
-      aria-modal="true"
-      aria-label="Confirmar a mudança de estado"
+    <Modal
+      title={`Marcar como ${BOOKING_STATUS_LABEL[novoEstado].toLowerCase()}`}
+      subtitle={`${booking.client_name} · ${booking.service_name}`}
+      size="md"
+      onClose={onCancelar}
     >
-      <div className="max-h-[88vh] w-full max-w-lg overflow-y-auto rounded-xl2 bg-white shadow-lift">
-        <div className="flex items-start justify-between gap-3 border-b border-ink-100 px-6 py-4">
-          <div className="min-w-0">
-            <h2 className="text-lg font-bold">
-              Marcar como {BOOKING_STATUS_LABEL[novoEstado].toLowerCase()}
-            </h2>
-            <p className="truncate text-sm text-ink-500">
-              {booking.client_name} · {booking.service_name}
-            </p>
-          </div>
-          <button
-            onClick={onCancelar}
-            className="rounded-lg p-1.5 text-ink-400 hover:bg-ink-100 hover:text-ink-700"
-            aria-label="Fechar"
-          >
-            <IconClose className="h-5 w-5" />
-          </button>
-        </div>
-
-        <div className="space-y-4 p-6">
+      <div className="space-y-4">
           {erro && (
             <p className="rounded-xl bg-rose-50 px-4 py-3 text-sm text-rose-700">{erro}</p>
           )}
@@ -156,19 +138,18 @@ export default function StatusChangeDialog({
           )}
         </div>
 
-        <div className="flex gap-2 border-t border-ink-100 px-6 py-4">
-          <button onClick={aplicar} disabled={aAplicar} className="btn-primary flex-1">
-            {aAplicar
-              ? "A aplicar..."
-              : previsao?.will_notify && avisar
-                ? "Alterar e avisar"
-                : "Alterar sem avisar"}
-          </button>
-          <button onClick={onCancelar} disabled={aAplicar} className="btn-ghost">
-            Cancelar
-          </button>
-        </div>
+      <div className="mt-5 flex gap-2 border-t border-ink-100 pt-4">
+        <button onClick={aplicar} disabled={aAplicar} className="btn-primary flex-1">
+          {aAplicar
+            ? "A aplicar..."
+            : previsao?.will_notify && avisar
+              ? "Alterar e avisar"
+              : "Alterar sem avisar"}
+        </button>
+        <button onClick={onCancelar} disabled={aAplicar} className="btn-ghost">
+          Cancelar
+        </button>
       </div>
-    </div>
+    </Modal>
   );
 }

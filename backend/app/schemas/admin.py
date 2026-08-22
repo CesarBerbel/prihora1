@@ -91,3 +91,21 @@ class SubscriptionOut(ORMModel):
 
 class ChangePlanRequest(BaseModel):
     plan_id: int
+
+
+class PreviewLink(BaseModel):
+    """Endereço temporário para ver um perfil que ainda não está público."""
+
+    url: str
+    expires_minutes: int
+
+
+class AdminCategoryOut(ORMModel):
+    id: int
+    slug: str
+    name: str
+    description: str | None = None
+    icon: str
+    sort_order: int
+    is_active: bool
+    professional_count: int = 0

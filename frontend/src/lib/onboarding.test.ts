@@ -52,10 +52,24 @@ describe("progresso do onboarding", () => {
 
   it("cada passo conta assim que a condição é satisfeita", () => {
     assert.equal(computeProgress(perfil({ bio: "Trabalho com gel." })).concluidos, 1);
-    assert.equal(computeProgress(perfil({ city: "Braga" })).concluidos, 1);
+    assert.equal(
+      computeProgress(perfil({ city: "Braga", latitude: 41.5, longitude: -8.4 })).concluidos,
+      1,
+    );
     assert.equal(computeProgress(perfil({ services: [servico] })).concluidos, 1);
     assert.equal(computeProgress(perfil({ availabilities: [horario] })).concluidos, 1);
     assert.equal(computeProgress(perfil({ status: "active" })).concluidos, 1);
+  });
+
+  it("a localidade sem o mapa não fecha o passo", () => {
+    // Sem coordenadas o perfil fica no fim de todas as pesquisas por
+    // proximidade: dar o passo por feito seria deixá-lo publicar às escuras.
+    assert.equal(computeProgress(perfil({ city: "Braga" })).concluidos, 0);
+    assert.equal(computeProgress(perfil({ latitude: 41.5, longitude: -8.4 })).concluidos, 0);
+    assert.equal(
+      computeProgress(perfil({ city: "Braga", latitude: 41.5, longitude: -8.4 })).concluidos,
+      1,
+    );
   });
 
   it("bio só com espaços não conta", () => {

@@ -3,6 +3,7 @@
 from datetime import datetime
 from zoneinfo import ZoneInfo
 
+from app.core.config import settings
 from app.models import Booking, NotificationTrigger, Professional
 
 # Variáveis que o profissional pode usar nos modelos. A lista é fechada de
@@ -17,11 +18,24 @@ VARIABLES: dict[str, str] = {
     "duracao": "Duração em minutos",
     "preco": "Preço formatado (25,00 €)",
     "codigo": "Código de acompanhamento da marcação",
+    "link_marcacao": "Ligação para o cliente consultar a marcação",
     "morada": "Onde decorre o atendimento",
     "telefone": "O seu telefone de contacto",
     "telefone_cliente": "Telefone do cliente (útil nos avisos para si)",
     "motivo": "Motivo do cancelamento, quando houver",
 }
+
+def link_da_marcacao(booking: Booking) -> str:
+    """Onde o cliente consulta a marcação, sem precisar de conta.
+
+    O código sozinho não chega: quem o recebe no WhatsApp fica com um punhado
+    de letras e sem saber onde as escrever. A ligação abre a consulta já
+    preenchida.
+    """
+    if not booking.code:
+        return ""
+    return f"{settings.SITE_URL.rstrip('/')}/agendamento?code={booking.code}"
+
 
 DIAS = [
     "segunda-feira", "terça-feira", "quarta-feira", "quinta-feira",
@@ -51,6 +65,7 @@ def build_context(booking: Booking, professional: Professional) -> dict[str, str
         "duracao": str(int((booking.ends_at - booking.starts_at).total_seconds() // 60)),
         "preco": f"{booking.price_cents / 100:.2f}".replace(".", ",") + " €",
         "codigo": booking.code or "",
+        "link_marcacao": link_da_marcacao(booking),
         "morada": morada,
         "telefone": professional.public_phone or professional.whatsapp or "",
         "telefone_cliente": booking.client_phone or "",
@@ -85,7 +100,9 @@ DEFAULTS: dict[NotificationTrigger, dict] = {
         "client_body": (
             "Olá {cliente}, recebemos o seu pedido de marcação:\n"
             "{servico}, {dia_semana}, {data} às {hora}.\n\n"
-            "Confirmo em breve. O código da marcação é {codigo}.\n\n"
+            "Confirmo em breve.\n\n"
+            "Acompanhe aqui: {link_marcacao}\n"
+            "Código {codigo}.\n\n"
             "{profissional}"
         ),
         "professional_body": (
@@ -106,6 +123,7 @@ DEFAULTS: dict[NotificationTrigger, dict] = {
             "Local: {morada}\n"
             "Valor: {preco}\n\n"
             "Se precisar de alterar alguma coisa, é só dizer.\n\n"
+            "Detalhes da marcação: {link_marcacao}\n\n"
             "{profissional}"
         ),
         "professional_body": (
@@ -118,7 +136,7 @@ DEFAULTS: dict[NotificationTrigger, dict] = {
         "offset_minutes": 0,
         "client_body": (
             "Olá {cliente}, obrigada por ter vindo. Espero que tenha gostado do resultado.\n\n"
-            "Se quiser deixar a sua avaliação, use o código {codigo}.\n\n"
+            "Se quiser deixar a sua avaliação, é aqui: {link_marcacao}\n\n"
             "Até à próxima,\n{profissional}"
         ),
         "professional_body": (
@@ -163,6 +181,7 @@ DEFAULTS: dict[NotificationTrigger, dict] = {
         "client_body": (
             "Olá {cliente}, passo só a lembrar: {servico} hoje às {hora}.\n"
             "Local: {morada}\n\n"
+            "Detalhes: {link_marcacao}\n\n"
             "Até já,\n{profissional}"
         ),
         "professional_body": (

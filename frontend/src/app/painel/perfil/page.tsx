@@ -51,6 +51,7 @@ export default function PerfilPage() {
           slot_interval_min: profileData.slot_interval_min,
           min_notice_hours: profileData.min_notice_hours,
           max_advance_days: profileData.max_advance_days,
+          cancel_notice_hours: profileData.cancel_notice_hours,
           auto_confirm: profileData.auto_confirm,
         });
       })
@@ -450,7 +451,7 @@ export default function PerfilPage() {
             {/* --------------------------------------- preferências de agenda --- */}
             <section className="card p-6">
               <h2 className="font-bold">Preferências de agenda</h2>
-              <div className="mt-4 grid gap-4 sm:grid-cols-3">
+              <div className="mt-4 grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
                 <div>
                   <label className="label" htmlFor="slot_interval_min">
                     Intervalo entre horários
@@ -501,6 +502,26 @@ export default function PerfilPage() {
                       </option>
                     ))}
                   </select>
+                </div>
+                <div>
+                  <label className="label" htmlFor="cancel_notice_hours">
+                    Cancelar até
+                  </label>
+                  <select
+                    id="cancel_notice_hours"
+                    className="input"
+                    value={value("cancel_notice_hours")}
+                    onChange={(event) => set("cancel_notice_hours", Number(event.target.value))}
+                  >
+                    {[0, 2, 6, 12, 24, 48, 72].map((hours) => (
+                      <option key={hours} value={hours}>
+                        {hours === 0 ? "Até à hora" : `${hours}h antes`}
+                      </option>
+                    ))}
+                  </select>
+                  <p className="field-hint">
+                    Depois disto, o cliente já não cancela nem remarca sozinho — fala consigo.
+                  </p>
                 </div>
               </div>
 

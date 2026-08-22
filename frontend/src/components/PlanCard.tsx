@@ -10,7 +10,8 @@
 
 import { useEffect, useState } from "react";
 
-import { IconCheck, IconClose } from "@/components/Icons";
+import { IconCheck } from "@/components/Icons";
+import Modal from "@/components/Modal";
 import { ApiError, api } from "@/lib/api";
 import { formatDate, formatPrice } from "@/lib/format";
 import type { Plan, SubscriptionStatus } from "@/lib/types";
@@ -79,21 +80,6 @@ export default function PlanCard() {
     recarregar().catch(() => setErro("Não foi possível carregar o plano."));
   }, []);
 
-  // Com o comparador aberto, a página por trás não deve rolar.
-  useEffect(() => {
-    if (!aComparar) return;
-    const anterior = document.body.style.overflow;
-    document.body.style.overflow = "hidden";
-    function escape(evento: KeyboardEvent) {
-      if (evento.key === "Escape") setAComparar(false);
-    }
-    document.addEventListener("keydown", escape);
-    return () => {
-      document.body.style.overflow = anterior;
-      document.removeEventListener("keydown", escape);
-    };
-  }, [aComparar]);
-
   async function mudar(plano: Plan) {
     if (subscricao?.plan.id === plano.id) return;
     setAMudar(plano.id);
@@ -155,35 +141,14 @@ export default function PlanCard() {
       )}
 
       {aComparar && (
-        <div
-          className="fixed inset-0 z-50 flex items-start justify-center overflow-y-auto bg-ink-950/50 p-4 sm:p-8"
-          onClick={(evento) => {
-            if (evento.target === evento.currentTarget) setAComparar(false);
-          }}
+        <Modal
+          title="Escolher plano"
+          subtitle="Sem fidelização: muda quando quiser e o efeito é imediato."
+          size="xl"
+          onClose={() => setAComparar(false)}
         >
-          <div
-            role="dialog"
-            aria-modal="true"
-            aria-label="Escolher plano"
-            className="my-auto w-full max-w-5xl rounded-xl2 bg-white p-6 shadow-lift sm:p-8"
-          >
-            <div className="flex items-start justify-between gap-4">
-              <div>
-                <h3 className="text-xl font-bold tracking-tight">Escolher plano</h3>
-                <p className="mt-1 text-sm text-ink-500">
-                  Sem fidelização: muda quando quiser e o efeito é imediato.
-                </p>
-              </div>
-              <button
-                onClick={() => setAComparar(false)}
-                className="rounded-lg p-1.5 text-ink-400 transition hover:bg-ink-100 hover:text-ink-700"
-                aria-label="Fechar"
-              >
-                <IconClose className="h-5 w-5" />
-              </button>
-            </div>
-
-            <div className="mt-6 grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
+          <div>
+            <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
               {planos.map((plano) => {
                 const atual = subscricao?.plan.id === plano.id;
                 return (
@@ -242,7 +207,7 @@ export default function PlanCard() {
               e sem custo.
             </p>
           </div>
-        </div>
+        </Modal>
       )}
     </div>
   );

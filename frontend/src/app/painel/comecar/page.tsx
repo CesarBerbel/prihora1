@@ -76,6 +76,9 @@ export default function ComecarPage() {
   }, [carregar]);
 
   const progresso = computeProgress(profile);
+  // A localidade diz onde; as coordenadas dizem quao perto. Sem as duas o
+  // perfil nao entra na ordenacao por distancia.
+  const temMapa = Boolean(local.latitude.trim() && local.longitude.trim());
 
   async function executar(accao: () => Promise<unknown>, seguinte?: StepId) {
     setAGuardar(true);
@@ -355,11 +358,19 @@ export default function ComecarPage() {
               ),
             )
           }
-          disabled={aGuardar || !local.city.trim()}
+          disabled={aGuardar || !local.city.trim() || !temMapa}
           className="btn-primary"
         >
           {aGuardar ? "A guardar..." : "Guardar e continuar"}
         </button>
+
+        {!temMapa && (
+          <p className="text-xs text-amber-700">
+            Falta a localização no mapa. Carregue em <strong>usar a minha localização</strong>{" "}
+            ou escreva a latitude e a longitude — sem elas o seu perfil aparece sempre no fim
+            das pesquisas por proximidade.
+          </p>
+        )}
       </div>
     ),
 

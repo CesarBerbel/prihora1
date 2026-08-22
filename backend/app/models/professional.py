@@ -59,6 +59,11 @@ class Professional(Base):
     slot_interval_min: Mapped[int] = mapped_column(Integer, default=30)
     min_notice_hours: Mapped[int] = mapped_column(Integer, default=2)
     max_advance_days: Mapped[int] = mapped_column(Integer, default=60)
+    # Até quantas horas antes o cliente pode cancelar ou remarcar sozinho.
+    # Separado da antecedência para marcar: aceitar uma marcação com 2h de
+    # aviso não obriga a aceitar um cancelamento com 2h — o tempo já está
+    # reservado e dificilmente se enche outra vez.
+    cancel_notice_hours: Mapped[int] = mapped_column(Integer, default=24)
     auto_confirm: Mapped[bool] = mapped_column(Boolean, default=False)
 
     # Estado no marketplace
@@ -110,6 +115,9 @@ class Professional(Base):
     bookings = relationship("Booking", back_populates="professional", cascade="all, delete-orphan")
     expenses = relationship(
         "Expense", back_populates="professional", cascade="all, delete-orphan"
+    )
+    packages = relationship(
+        "ServicePackage", back_populates="professional", cascade="all, delete-orphan"
     )
     clients = relationship(
         "ProfessionalClient", back_populates="professional", cascade="all, delete-orphan"

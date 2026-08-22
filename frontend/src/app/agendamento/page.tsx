@@ -4,6 +4,7 @@ import Link from "next/link";
 import { useSearchParams } from "next/navigation";
 import { Suspense, useEffect, useState } from "react";
 
+import BookingActions from "@/components/BookingActions";
 import { IconCalendar, IconSearch } from "@/components/Icons";
 import { ApiError, api } from "@/lib/api";
 import {
@@ -12,12 +13,12 @@ import {
   formatDateTime,
   formatPrice,
 } from "@/lib/format";
-import type { Booking } from "@/lib/types";
+import type { BookingLookup } from "@/lib/types";
 
 function Consulta() {
   const searchParams = useSearchParams();
   const [code, setCode] = useState(searchParams.get("code") ?? "");
-  const [booking, setBooking] = useState<Booking | null>(null);
+  const [booking, setBooking] = useState<BookingLookup | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
 
@@ -27,7 +28,7 @@ function Consulta() {
     setLoading(true);
     setError(null);
     try {
-      setBooking(await api.get<Booking>(`/bookings/${clean}`));
+      setBooking(await api.get<BookingLookup>(`/bookings/${clean}`));
     } catch (err) {
       setBooking(null);
       setError(
@@ -112,6 +113,8 @@ function Consulta() {
               </div>
             )}
           </dl>
+
+          <BookingActions booking={booking} onChanged={setBooking} />
         </div>
       )}
     </>
@@ -128,7 +131,7 @@ export default function AgendamentoPage() {
           </span>
           <h1 className="mt-4 text-2xl font-bold tracking-tight">Consultar marcação</h1>
           <p className="mt-2 text-sm text-ink-500">
-            Digite o código que você recebeu ao reservar o horário.
+            Escreva o código que recebeu ao reservar o horário. Também lho enviámos por WhatsApp.
           </p>
         </div>
 
@@ -141,7 +144,7 @@ export default function AgendamentoPage() {
         <p className="mt-8 text-center text-sm text-ink-500">
           Tem conta no prihora?{" "}
           <Link href="/minha-conta" className="font-semibold text-brand-600 hover:text-brand-700">
-            Ver todos os as suas marcações
+            Ver todas as suas marcações
           </Link>
         </p>
       </div>

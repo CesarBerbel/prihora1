@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react";
 
 import AccountShell from "@/components/AccountShell";
+import Modal from "@/components/Modal";
 import { IconClock, IconTrash } from "@/components/Icons";
 import { ApiError, api } from "@/lib/api";
 import { formatDuration, formatPrice } from "@/lib/format";
@@ -147,10 +148,13 @@ export default function ServicosPage() {
       )}
 
       {open && (
-        <form onSubmit={submit} className="card mb-6 p-6">
-          <h2 className="font-bold">{editing ? "Editar serviço" : "Novo serviço"}</h2>
-
-          <div className="mt-4 grid gap-4 sm:grid-cols-2">
+        <Modal
+          title={editing ? "Editar serviço" : "Novo serviço"}
+          subtitle="Aparece na sua página pública e na agenda."
+          onClose={() => setOpen(false)}
+        >
+          <form onSubmit={submit}>
+            <div className="grid gap-4 sm:grid-cols-2">
             <div className="sm:col-span-2">
               <label className="label" htmlFor="servico-nome">
                 Nome do serviço *
@@ -201,7 +205,7 @@ export default function ServicosPage() {
 
             <div>
               <label className="label" htmlFor="servico-preço">
-                Preço (R$)
+                Preço (€)
               </label>
               <input
                 id="servico-preço"
@@ -258,7 +262,8 @@ export default function ServicosPage() {
               Cancelar
             </button>
           </div>
-        </form>
+          </form>
+        </Modal>
       )}
 
       {services.length === 0 ? (

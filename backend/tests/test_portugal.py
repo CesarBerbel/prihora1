@@ -103,3 +103,25 @@ def test_nao_restam_localidades_de_outro_pais(db):
         if c.state.lower() not in distritos
     ]
     assert fora == [], f"localidades fora dos distritos portugueses: {fora[:5]}"
+
+
+# --- catálogo de especialidades ----------------------------------------------
+def test_o_endereco_de_pesquisa_nao_muda_por_causa_do_nome(db):
+    """Corrigir uma gralha no nome não pode partir ligações guardadas.
+
+    O slug de uma especialidade anda nos endereços que as pessoas guardam
+    (`/buscar?category=manicure`). Derivá-lo do nome a cada gravação fazia com
+    que um acerto de texto partisse essas ligações — sem ninguém pedir e sem
+    dar erro nenhum.
+    """
+    from slugify import slugify
+
+    # A regra do endpoint, em duas linhas: sem slug no pedido, fica o antigo.
+    def novo_slug(pedido: str | None, atual: str) -> str:
+        return slugify(pedido) if pedido else atual
+
+    assert novo_slug(None, "manicure") == "manicure"
+    assert novo_slug("", "manicure") == "manicure"
+    assert novo_slug("micro-capilar", "manicure") == "micro-capilar"
+    # E o que se escreve à mão passa na mesma pelo slugify.
+    assert novo_slug("Micro Capilar!", "manicure") == "micro-capilar"

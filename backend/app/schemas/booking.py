@@ -61,6 +61,11 @@ class InternalBookingCreate(BaseModel):
     client_email: EmailStr | None = None
     save_client: bool = True
 
+    # Gastar uma sessão de um pacote já vendido. Quando vem preenchido, o
+    # serviço, a duração e o preço saem do pacote — não se cobra outra vez o
+    # que já foi pago.
+    package_sale_id: int | None = None
+
     status: BookingStatus = BookingStatus.CONFIRMED
     at_home: bool = False
     address_line: str | None = Field(default=None, max_length=255)
@@ -68,6 +73,11 @@ class InternalBookingCreate(BaseModel):
 
     @model_validator(mode="after")
     def validar(self) -> "InternalBookingCreate":
+        # Com pacote, o serviço vem de lá: a validação abaixo não se aplica.
+        if self.package_sale_id is not None:
+            if self.client_id is None:
+                raise ValueError("Um pacote pertence a um cliente da sua lista.")
+            return self
         if self.service_id is None:
             if not (self.service_name and self.service_name.strip()):
                 raise ValueError("Escolha um serviço do catálogo ou indique o nome do atendimento.")
@@ -98,14 +108,46 @@ class BookingOut(ORMModel):
     notes: str | None = None
     cancel_reason: str | None = None
     professional_client_id: int | None = None
+    # De que saldo saiu, quando saiu de um: o preço a zero de uma marcação
+    # paga por pacote não é o mesmo zero de uma cortesia.
+    package_sale_id: int | None = None
     created_by_professional: bool = False
     created_at: datetime
+
+
+class BookingLookup(BookingOut):
+    """O que a consulta pelo código mostra a quem marcou sem conta.
+
+    Traz a política já decidida — se pode mudar, até quando e porquê não — em
+    vez de a mandar calcular ao ecrã. A regra do prazo é do servidor; se a
+    página a repetisse, as duas versões acabariam por divergir.
+    """
+
+    professional_slug: str | None = None
+    professional_name: str | None = None
+    professional_whatsapp: str | None = None
+
+    can_change: bool = False
+    change_blocked_reason: str | None = None
+    change_deadline: datetime | None = None
+    cancel_notice_hours: int = 0
+
+    # A mensagem de conclusão convida a avaliar e traz esta ligação: a página
+    # tem de saber se o convite ainda está de pé.
+    can_review: bool = False
+    already_reviewed: bool = False
+
+
+class BookingReschedule(BaseModel):
+    starts_at: datetime
 
 
 class BookingWithProfessional(BookingOut):
     professional_slug: str | None = None
     professional_name: str | None = None
     professional_avatar: str | None = None
+    # O convite para avaliar tem de desaparecer depois de avaliada.
+    already_reviewed: bool = False
 
 
 class BookingStatusUpdate(BaseModel):

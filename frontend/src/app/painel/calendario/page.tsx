@@ -15,6 +15,7 @@ import CalendarMonth from "@/components/CalendarMonth";
 import CalendarTimeGrid from "@/components/CalendarTimeGrid";
 import DashboardShell from "@/components/DashboardShell";
 import InternalBookingForm from "@/components/InternalBookingForm";
+import Modal from "@/components/Modal";
 import StatusChangeDialog from "@/components/StatusChangeDialog";
 import { IconClose, IconWhatsapp } from "@/components/Icons";
 import { PANEL_NAV } from "@/components/PanelNav";
@@ -148,6 +149,11 @@ export default function CalendarioPage() {
     );
   }, [dias]);
 
+  function fecharNova() {
+    setCriando(false);
+    setNovaEm(null);
+  }
+
   function abrirNova(inicio: Date | null) {
     setAberto(null);
     setAPerguntar(null);
@@ -162,11 +168,9 @@ export default function CalendarioPage() {
       nav={PANEL_NAV}
       allow={["professional"]}
       actions={
-        !criando && (
-          <button onClick={() => abrirNova(null)} className="btn-primary btn-sm">
-            Nova marcação
-          </button>
-        )
+        <button onClick={() => abrirNova(null)} className="btn-primary btn-sm">
+          Nova marcação
+        </button>
       }
     >
       {aMudar && (
@@ -190,18 +194,21 @@ export default function CalendarioPage() {
       )}
 
       {criando && (
-        <InternalBookingForm
-          inicio={novaEm}
-          onCreated={() => {
-            setCriando(false);
-            setNovaEm(null);
-            void carregar();
-          }}
-          onCancel={() => {
-            setCriando(false);
-            setNovaEm(null);
-          }}
-        />
+        <Modal
+          title="Nova marcação"
+          subtitle="Entra na agenda mesmo fora do horário publicado — só não pode sobrepor outro atendimento."
+          size="xl"
+          onClose={fecharNova}
+        >
+          <InternalBookingForm
+            inicio={novaEm}
+            onCreated={() => {
+              fecharNova();
+              void carregar();
+            }}
+            onCancel={fecharNova}
+          />
+        </Modal>
       )}
 
       {/* ------------------------------------------------------ navegação --- */}
@@ -358,7 +365,8 @@ function DetalheDaMarcacao({
         <div>
           <dt className="text-xs text-ink-400">Serviço</dt>
           <dd className="text-ink-700">
-            {booking.service_name} · {formatPrice(booking.price_cents)}
+            {booking.service_name} ·{" "}
+            {booking.package_sale_id ? "pago no pacote" : formatPrice(booking.price_cents)}
           </dd>
         </div>
         <div>
@@ -476,14 +484,6 @@ function ConfirmarNova({
   onSim: () => void;
   onNao: () => void;
 }) {
-  useEffect(() => {
-    function escape(evento: KeyboardEvent) {
-      if (evento.key === "Escape") onNao();
-    }
-    document.addEventListener("keydown", escape);
-    return () => document.removeEventListener("keydown", escape);
-  }, [onNao]);
-
   const quando = new Intl.DateTimeFormat("pt-PT", {
     weekday: "long",
     day: "numeric",
@@ -495,36 +495,21 @@ function ConfirmarNova({
   }).format(inicio);
 
   return (
-    <div
-      className="fixed inset-0 z-50 flex items-center justify-center bg-ink-950/50 p-4"
-      onClick={(evento) => {
-        if (evento.target === evento.currentTarget) onNao();
-      }}
-    >
-      <div
-        role="dialog"
-        aria-modal="true"
-        aria-label="Nova marcação"
-        className="w-full max-w-sm rounded-xl2 bg-white p-6 shadow-lift"
-      >
-        <h2 className="text-lg font-bold tracking-tight">Marcar nesta hora?</h2>
-        <p className="mt-2 text-sm leading-relaxed text-ink-600">
-          <span className="font-semibold text-ink-900">{hora}</span> de{" "}
-          <span className="first-letter:uppercase">{quando}</span>.
-        </p>
-        <p className="mt-1 text-xs text-ink-400">
-          Pode mudar a hora no formulário a seguir.
-        </p>
+    <Modal title="Marcar nesta hora?" size="sm" onClose={onNao}>
+      <p className="text-sm leading-relaxed text-ink-600">
+        <span className="font-semibold text-ink-900">{hora}</span> de{" "}
+        <span className="first-letter:uppercase">{quando}</span>.
+      </p>
+      <p className="mt-1 text-xs text-ink-400">Pode mudar a hora no formulário a seguir.</p>
 
-        <div className="mt-6 flex gap-2">
-          <button onClick={onSim} className="btn-primary flex-1" autoFocus>
-            Sim, marcar
-          </button>
-          <button onClick={onNao} className="btn-ghost">
-            Cancelar
-          </button>
-        </div>
+      <div className="mt-6 flex gap-2">
+        <button onClick={onSim} className="btn-primary flex-1">
+          Sim, marcar
+        </button>
+        <button onClick={onNao} className="btn-ghost">
+          Cancelar
+        </button>
       </div>
-    </div>
+    </Modal>
   );
 }

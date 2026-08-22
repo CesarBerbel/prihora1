@@ -163,9 +163,18 @@ def has_booking_conflict(
 
 
 def slot_is_free(
-    db: Session, professional: Professional, start_utc: datetime, end_utc: datetime
+    db: Session,
+    professional: Professional,
+    start_utc: datetime,
+    end_utc: datetime,
+    *,
+    exclude_booking_id: int | None = None,
 ) -> tuple[bool, str]:
-    """Revalida um horario na hora da reserva, evitando corrida entre dois clientes."""
+    """Revalida um horario na hora da reserva, evitando corrida entre dois clientes.
+
+    `exclude_booking_id` serve a remarcacao: a propria marcacao que esta a ser
+    movida nao pode contar como conflito consigo mesma.
+    """
     now_utc = datetime.now(timezone.utc)
 
     if start_utc < now_utc + timedelta(hours=professional.min_notice_hours):
@@ -195,7 +204,9 @@ def slot_is_free(
     if not inside:
         return False, "Hora fora do horário de atendimento do profissional."
 
-    if has_booking_conflict(db, professional, start_utc, end_utc):
+    if has_booking_conflict(
+        db, professional, start_utc, end_utc, exclude_booking_id=exclude_booking_id
+    ):
         return False, "Esta hora acabou de ser reservada. Escolha outra."
 
     blocked = db.scalar(
@@ -241,3 +252,41 @@ def bookings_in_window(
     if fim is not None:
         query = query.where(Booking.starts_at < fim)
     return list(db.scalars(query.order_by(Booking.starts_at.desc()).limit(limit)).all())
+
+
+# --- o que o cliente ainda pode mudar sozinho --------------------------------
+
+# Só estas duas fazem sentido mudar: uma concluída já aconteceu, uma cancelada
+# já não existe, e uma falta é um registo do que se passou.
+MUTAVEIS = {BookingStatus.PENDING, BookingStatus.CONFIRMED}
+
+
+def change_deadline(professional: Professional, booking: Booking) -> datetime:
+    """A partir de quando deixa de ser possível cancelar ou remarcar."""
+    horas = max(0, int(professional.cancel_notice_hours or 0))
+    return booking.starts_at - timedelta(hours=horas)
+
+
+def can_client_change(
+    professional: Professional, booking: Booking, *, agora: datetime | None = None
+) -> tuple[bool, str]:
+    """O cliente ainda pode mexer nesta marcação?
+
+    Devolve também o porquê, porque o ecrã tem de dizer ao cliente qual das
+    razões o travou — "já passou" e "está fora do prazo" pedem respostas
+    diferentes da parte dele.
+    """
+    agora = agora or datetime.now(timezone.utc)
+
+    if booking.status not in MUTAVEIS:
+        return False, "Esta marcação já não pode ser alterada."
+    if booking.starts_at <= agora:
+        return False, "Esta marcação já passou."
+
+    horas = max(0, int(professional.cancel_notice_hours or 0))
+    if agora > change_deadline(professional, booking):
+        return False, (
+            f"Fora do prazo: alterações até {horas}h antes do atendimento. "
+            "Fale diretamente com o profissional."
+        )
+    return True, ""

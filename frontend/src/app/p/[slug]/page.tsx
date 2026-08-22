@@ -4,11 +4,12 @@ import { notFound } from "next/navigation";
 
 import BookingWidget from "@/components/BookingWidget";
 import {
-  IconCalendar,
   IconCheck,
   IconClock,
   IconHome,
+  IconInstagram,
   IconPin,
+  IconSparkles,
   IconStar,
   IconVerified,
   IconWhatsapp,
@@ -20,6 +21,8 @@ import {
   formatDate,
   formatDuration,
   formatPrice,
+  instagramHandle,
+  instagramUrl,
   whatsappLink,
 } from "@/lib/format";
 import type { ProfessionalPublic, Review } from "@/lib/types";
@@ -27,10 +30,18 @@ import type { ProfessionalPublic, Review } from "@/lib/types";
 export const revalidate = 30;
 
 type Params = Promise<{ slug: string }>;
+type Query = Promise<Record<string, string | string[] | undefined>>;
 
-async function loadProfessional(slug: string): Promise<ProfessionalPublic | null> {
+async function loadProfessional(
+  slug: string,
+  preview?: string,
+): Promise<ProfessionalPublic | null> {
   try {
-    return await api.get<ProfessionalPublic>(`/professionals/${slug}`);
+    return await api.get<ProfessionalPublic>(`/professionals/${slug}`, {
+      params: preview ? { preview } : undefined,
+      // A pré-visualização não é para guardar: o perfil está a ser mudado.
+      revalidate: preview ? 0 : undefined,
+    });
   } catch (error) {
     if (error instanceof ApiError && error.status === 404) return null;
     throw error;
@@ -65,15 +76,24 @@ export async function generateMetadata({ params }: { params: Params }): Promise<
 
 
 
-export default async function ProfessionalPage({ params }: { params: Params }) {
+export default async function ProfessionalPage({
+  params,
+  searchParams,
+}: {
+  params: Params;
+  searchParams: Query;
+}) {
   const { slug } = await params;
-  const pro = await loadProfessional(slug);
+  const bruto = (await searchParams).preview;
+  const preview = typeof bruto === "string" ? bruto : undefined;
+
+  const pro = await loadProfessional(slug, preview);
   if (!pro) notFound();
 
   let reviews: Review[] = [];
   try {
     reviews = await api.get<Review[]>(`/professionals/${slug}/reviews`, {
-      params: { limit: 12 },
+      params: preview ? { limit: 12, preview } : { limit: 12 },
     });
   } catch {
     reviews = [];
@@ -81,6 +101,8 @@ export default async function ProfessionalPage({ params }: { params: Params }) {
 
   const local = localizacao(pro);
   const whatsapp = whatsappLink(pro.whatsapp ?? pro.public_phone);
+  // O campo é livre: aceita "@nome", "nome" ou o endereço colado inteiro.
+  const instagram = instagramUrl(pro.instagram);
   const activeServices = pro.services.filter((service) => service.is_active);
 
   // Agrupa a grade semanal para exibir "Segunda 09:00 as 18:00".
@@ -93,6 +115,15 @@ export default async function ProfessionalPage({ params }: { params: Params }) {
 
   return (
     <div className="bg-ink-50 pb-16">
+      {/* Quem chegou aqui por uma ligação de revisão tem de saber que o que
+          está a ver ainda não é público, e que o botão de marcar não serve. */}
+      {preview && (
+        <div className="bg-amber-100 px-4 py-2.5 text-center text-sm text-amber-900">
+          <strong>Pré-visualização.</strong> Está a ver este perfil como ele vai ficar
+          publicado. A ligação é temporária e o perfil pode ainda não aparecer nas pesquisas.
+        </div>
+      )}
+
       {/* ------------------------------------------------------------ capa --- */}
       <div className="h-40 bg-gradient-to-r from-brand-500 via-brand-600 to-brand-700 sm:h-52" />
 
@@ -124,25 +155,43 @@ export default async function ProfessionalPage({ params }: { params: Params }) {
               {pro.headline && <p className="mt-1.5 text-ink-600">{pro.headline}</p>}
 
               <div className="mt-3 flex flex-wrap items-center gap-x-4 gap-y-2 text-sm text-ink-500">
-                {pro.rating_count > 0 && (
-                  <span className="inline-flex items-center gap-1 font-semibold text-ink-800">
-                    <IconStar className="h-4 w-4 text-amber-500" />
-                    {pro.rating_avg.toFixed(1).replace(".", ",")}
-                    <span className="font-normal text-ink-400">
-                      ({pro.rating_count} {pro.rating_count === 1 ? "avaliação" : "avaliações"})
-                    </span>
+                {/* Sempre à vista, mesmo a zero: escondê-los faz um perfil
+                    novo parecer incompleto em vez de novo. */}
+                {/* A nota leva a quem a deu: quem a lê quer ver os comentários. */}
+                <a
+                  href="#avaliacoes"
+                  className={`inline-flex items-center gap-1 rounded font-semibold transition hover:text-brand-700 ${
+                    pro.rating_count > 0 ? "text-ink-800" : "text-ink-400"
+                  }`}
+                >
+                  <IconStar
+                    className={`h-4 w-4 ${
+                      pro.rating_count > 0 ? "text-amber-500" : "text-ink-300"
+                    }`}
+                  />
+                  {pro.rating_avg.toFixed(1).replace(".", ",")}
+                  <span className="font-normal text-ink-400 underline decoration-ink-300 underline-offset-2">
+                    ({pro.rating_count} {pro.rating_count === 1 ? "avaliação" : "avaliações"})
                   </span>
-                )}
+                </a>
                 {local && (
                   <span className="inline-flex items-center gap-1">
                     <IconPin className="h-4 w-4" />
                     {local}
                   </span>
                 )}
-                {pro.completed_bookings > 0 && (
+                {pro.completed_bookings > 0 ? (
                   <span className="inline-flex items-center gap-1">
                     <IconCheck className="h-4 w-4" />
-                    {pro.completed_bookings} atendimentos concluídos
+                    {pro.completed_bookings}{" "}
+                    {pro.completed_bookings === 1
+                      ? "atendimento concluído"
+                      : "atendimentos concluídos"}
+                  </span>
+                ) : (
+                  <span className="inline-flex items-center gap-1 font-semibold text-brand-700">
+                    <IconSparkles className="h-4 w-4" />
+                    Novo no prihora
                   </span>
                 )}
               </div>
@@ -167,10 +216,6 @@ export default async function ProfessionalPage({ params }: { params: Params }) {
             </div>
 
             <div className="flex shrink-0 gap-2 sm:flex-col">
-              <a href="#marcar" className="btn-primary flex-1">
-                <IconCalendar className="h-4 w-4" />
-                Marcar
-              </a>
               {whatsapp && (
                 <a
                   href={whatsapp}
@@ -180,6 +225,18 @@ export default async function ProfessionalPage({ params }: { params: Params }) {
                 >
                   <IconWhatsapp className="h-4 w-4 text-emerald-600" />
                   WhatsApp
+                </a>
+              )}
+              {instagram && (
+                <a
+                  href={instagram}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="btn-secondary flex-1"
+                  title={instagramHandle(pro.instagram) ?? "Instagram"}
+                >
+                  <IconInstagram className="h-4 w-4 text-brand-600" />
+                  Instagram
                 </a>
               )}
             </div>
@@ -199,15 +256,21 @@ export default async function ProfessionalPage({ params }: { params: Params }) {
               <BookingWidget professional={pro} />
             </section>
 
-            <section className="card p-6">
+            <section id="avaliacoes" className="card scroll-mt-24 p-6">
               <div className="flex items-baseline justify-between gap-3">
                 <h2 className="text-lg font-bold">Avaliações</h2>
-                {pro.rating_count > 0 && (
-                  <span className="inline-flex items-center gap-1 text-sm font-semibold">
-                    <IconStar className="h-4 w-4 text-amber-500" />
-                    {pro.rating_avg.toFixed(1).replace(".", ",")} de 5
-                  </span>
-                )}
+                <span
+                  className={`inline-flex items-center gap-1 text-sm font-semibold ${
+                    pro.rating_count > 0 ? "" : "text-ink-400"
+                  }`}
+                >
+                  <IconStar
+                    className={`h-4 w-4 ${
+                      pro.rating_count > 0 ? "text-amber-500" : "text-ink-300"
+                    }`}
+                  />
+                  {pro.rating_avg.toFixed(1).replace(".", ",")} de 5
+                </span>
               </div>
 
               {reviews.length === 0 ? (

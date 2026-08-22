@@ -5,6 +5,7 @@ import { useEffect, useState } from "react";
 
 import AccountShell from "@/components/AccountShell";
 import { IconCalendar, IconStar } from "@/components/Icons";
+import ReviewDialog from "@/components/ReviewDialog";
 import { ApiError, api } from "@/lib/api";
 import { useSession } from "@/lib/auth";
 import {
@@ -20,9 +21,7 @@ export default function MinhaContaPage() {
   const { user, professionalSlug } = useSession();
   const [bookings, setBookings] = useState<Booking[]>([]);
   const [loading, setLoading] = useState(true);
-  const [review, setReview] = useState<{ booking: Booking; rating: number; comment: string } | null>(
-    null,
-  );
+  const [aAvaliar, setAAvaliar] = useState<Booking | null>(null);
   const [message, setMessage] = useState<{ kind: "ok" | "erro"; text: string } | null>(null);
 
   async function reload() {
@@ -34,30 +33,6 @@ export default function MinhaContaPage() {
       .catch(() => setMessage({ kind: "erro", text: "Não foi possível carregar." }))
       .finally(() => setLoading(false));
   }, []);
-
-  async function sendReview(event: React.FormEvent) {
-    event.preventDefault();
-    if (!review) return;
-    try {
-      await api.post(
-        `/professionals/${review.booking.professional_slug}/reviews`,
-        {
-          booking_code: review.booking.code,
-          rating: review.rating,
-          comment: review.comment || null,
-        },
-        { auth: true },
-      );
-      setReview(null);
-      await reload();
-      setMessage({ kind: "ok", text: "Obrigado pela avaliação!" });
-    } catch (error) {
-      setMessage({
-        kind: "erro",
-        text: error instanceof ApiError ? error.message : "Não foi possível avaliar.",
-      });
-    }
-  }
 
   const now = Date.now();
   const upcoming = bookings.filter(
@@ -104,9 +79,9 @@ export default function MinhaContaPage() {
             Código <span className="font-mono">{booking.code}</span>
           </p>
 
-          {canReview && booking.status === "completed" && (
+          {canReview && booking.status === "completed" && !booking.already_reviewed && (
             <button
-              onClick={() => setReview({ booking, rating: 5, comment: "" })}
+              onClick={() => setAAvaliar(booking)}
               className="btn-secondary btn-sm mt-3"
             >
               <IconStar className="h-3.5 w-3.5 text-amber-500" />
@@ -176,44 +151,19 @@ export default function MinhaContaPage() {
         </p>
       )}
 
-      {review && (
-        <form onSubmit={sendReview} className="card mb-6 p-6">
-          <h2 className="font-bold">Avaliar {review.booking.professional_name}</h2>
-          <p className="mt-1 text-sm text-ink-500">{review.booking.service_name}</p>
-
-          <div className="mt-4 flex gap-1">
-            {[1, 2, 3, 4, 5].map((star) => (
-              <button
-                key={star}
-                type="button"
-                onClick={() => setReview({ ...review, rating: star })}
-                aria-label={`${star} estrelas`}
-              >
-                <IconStar
-                  className={`h-7 w-7 ${
-                    star <= review.rating ? "text-amber-500" : "text-ink-200"
-                  }`}
-                />
-              </button>
-            ))}
-          </div>
-
-          <textarea
-            className="input mt-4 min-h-24 resize-y"
-            value={review.comment}
-            onChange={(event) => setReview({ ...review, comment: event.target.value })}
-            placeholder="Conte como correu o atendimento (opcional)"
-          />
-
-          <div className="mt-4 flex gap-2">
-            <button type="submit" className="btn-primary">
-              Enviar avaliação
-            </button>
-            <button type="button" onClick={() => setReview(null)} className="btn-ghost">
-              Cancelar
-            </button>
-          </div>
-        </form>
+      {aAvaliar && aAvaliar.professional_slug && (
+        <ReviewDialog
+          professionalName={aAvaliar.professional_name ?? "o profissional"}
+          professionalSlug={aAvaliar.professional_slug}
+          bookingCode={aAvaliar.code}
+          serviceName={aAvaliar.service_name}
+          onDone={() => {
+            setAAvaliar(null);
+            void reload();
+            setMessage({ kind: "ok", text: "Obrigado pela avaliação!" });
+          }}
+          onClose={() => setAAvaliar(null)}
+        />
       )}
 
       <h2 className="mb-3 font-bold">As minhas marcações</h2>

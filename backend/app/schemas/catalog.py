@@ -72,3 +72,14 @@ class ReverseGeocodeOut(BaseModel):
     # "nominatim" quando veio do serviço externo, "cidades" quando foi
     # deduzido da cidade conhecida mais próxima.
     source: str
+
+
+class CategoryUpsert(BaseModel):
+    name: str = Field(min_length=2, max_length=120)
+    # Vazio deixa o servidor derivá-lo do nome. Quem o escreve está a decidir
+    # o endereço de pesquisa, e por isso pode.
+    slug: str | None = Field(default=None, max_length=80)
+    description: str | None = Field(default=None, max_length=500)
+    icon: str = Field(default="sparkles", max_length=16)
+    sort_order: int = Field(default=100, ge=0, le=999)
+    is_active: bool = True

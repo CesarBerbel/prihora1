@@ -37,6 +37,10 @@ class Booking(Base):
     professional_client_id: Mapped[int | None] = mapped_column(
         ForeignKey("professional_clients.id", ondelete="SET NULL"), index=True
     )
+    # De que saldo de pacote saiu esta marcação, quando saiu de um.
+    package_sale_id: Mapped[int | None] = mapped_column(
+        ForeignKey("package_sales.id", ondelete="SET NULL")
+    )
 
     client_name: Mapped[str] = mapped_column(String(160), nullable=False)
     client_phone: Mapped[str] = mapped_column(String(32), nullable=False)

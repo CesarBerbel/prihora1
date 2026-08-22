@@ -216,3 +216,56 @@ def test_em_destaque_sem_resultados_nao_estoira(db):
     )
     assert outcome.total == 0
     assert outcome.items == []
+
+
+# --- números que aparecem sempre no cartão -----------------------------------
+def test_o_cartao_traz_sempre_nota_e_atendimentos(db):
+    """São mostrados mesmo a zero, logo não podem faltar na resposta.
+
+    O ecrã escreve `rating_avg.toFixed(1)` sem defesa nenhuma: se um destes
+    viesse a `None`, a página rebentava em vez de mostrar "0,0".
+    """
+    outcome = search_professionals(db, per_page=48)
+    assert outcome.total > 0
+
+    for hit in outcome.items:
+        pro = hit.professional
+        assert pro.rating_avg is not None, f"{pro.display_name} sem nota"
+        assert pro.rating_count is not None
+        assert pro.completed_bookings is not None
+        assert pro.rating_avg >= 0
+        assert pro.rating_count >= 0
+        assert pro.completed_bookings >= 0
+
+
+def test_perfil_novo_conta_zero_e_nao_nada(db):
+    """Quem nunca foi avaliado tem zero, e zero é um número que se mostra."""
+    outcome = search_professionals(db, per_page=48)
+    novos = [h.professional for h in outcome.items if h.professional.rating_count == 0]
+    if not novos:
+        pytest.skip("todos os profissionais semeados já têm avaliações")
+
+    for pro in novos:
+        assert pro.rating_avg == 0
+        assert pro.completed_bookings is not None
+
+
+# --- pré-visualização de perfis por aprovar ----------------------------------
+def test_a_autorizacao_de_previsualizacao_vale_para_um_perfil_so(db):
+    """Uma ligação de revisão partilhada por engano não pode abrir as outras."""
+    from app.core.security import create_preview_token, preview_allows
+
+    token = create_preview_token(7)
+    assert preview_allows(token, 7)
+    assert not preview_allows(token, 8)
+    assert not preview_allows(token, 0)
+
+
+def test_sem_autorizacao_nao_ha_previsualizacao(db):
+    from app.core.security import create_access_token, preview_allows
+
+    assert not preview_allows(None, 7)
+    assert not preview_allows("", 7)
+    assert not preview_allows("nao.e.um.token", 7)
+    # E um token de sessão normal também não serve: são coisas diferentes.
+    assert not preview_allows(create_access_token("7", "admin"), 7)

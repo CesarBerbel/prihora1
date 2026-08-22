@@ -3,7 +3,7 @@
 from datetime import datetime, time, timedelta, timezone
 
 import pytest
-from sqlalchemy import text
+from sqlalchemy import select, text
 
 from app.db.session import SessionLocal, engine
 from app.models import (
@@ -234,3 +234,93 @@ def test_slot_livre_respeita_antecedencia(db, profissional):
     )
     assert ok is False
     assert "antecedência" in motivo.lower()
+
+
+# --- o que o cliente ainda pode mudar sozinho --------------------------------
+def _marcacao(professional, daqui_a_horas: float, estado=None):
+    from app.models import Booking, BookingStatus
+
+    inicio = datetime.now(timezone.utc) + timedelta(hours=daqui_a_horas)
+    return Booking(
+        code="PHTESTE",
+        professional_id=professional.id,
+        service_name="Teste",
+        client_name="Cliente",
+        client_phone="912 000 000",
+        starts_at=inicio,
+        ends_at=inicio + timedelta(hours=1),
+        status=estado or BookingStatus.CONFIRMED,
+        price_cents=1000,
+    )
+
+
+def test_dentro_do_prazo_o_cliente_muda_sozinho(db):
+    from app.services.agenda import can_client_change
+
+    profissional = db.scalars(select(Professional).limit(1)).first()
+    anterior = profissional.cancel_notice_hours
+    profissional.cancel_notice_hours = 24
+
+    pode, motivo = can_client_change(profissional, _marcacao(profissional, 48))
+    assert pode, motivo
+
+    profissional.cancel_notice_hours = anterior
+
+
+def test_fora_do_prazo_diz_porque(db):
+    """A mensagem tem de nomear o prazo: "não pode" sozinho não ajuda ninguém."""
+    from app.services.agenda import can_client_change
+
+    profissional = db.scalars(select(Professional).limit(1)).first()
+    anterior = profissional.cancel_notice_hours
+    profissional.cancel_notice_hours = 24
+
+    pode, motivo = can_client_change(profissional, _marcacao(profissional, 3))
+    assert not pode
+    assert "24h" in motivo
+    assert "profissional" in motivo.lower()
+
+    profissional.cancel_notice_hours = anterior
+
+
+def test_prazo_a_zero_deixa_mudar_ate_a_hora(db):
+    from app.services.agenda import can_client_change
+
+    profissional = db.scalars(select(Professional).limit(1)).first()
+    anterior = profissional.cancel_notice_hours
+    profissional.cancel_notice_hours = 0
+
+    assert can_client_change(profissional, _marcacao(profissional, 0.5))[0]
+    # Mas o que já começou continua fechado, prazo zero ou não.
+    assert not can_client_change(profissional, _marcacao(profissional, -0.5))[0]
+
+    profissional.cancel_notice_hours = anterior
+
+
+def test_o_que_ja_terminou_nao_se_muda(db):
+    from app.models import BookingStatus
+    from app.services.agenda import can_client_change
+
+    profissional = db.scalars(select(Professional).limit(1)).first()
+    for estado in (BookingStatus.CANCELLED, BookingStatus.COMPLETED, BookingStatus.NO_SHOW):
+        pode, _ = can_client_change(profissional, _marcacao(profissional, 48, estado))
+        assert not pode, estado
+
+
+def test_uma_marcacao_nao_colide_consigo_mesma_ao_remarcar(db):
+    """Sem a exclusão, mover uma marcação uma hora à frente dava conflito."""
+    from app.services.agenda import has_booking_conflict
+
+    profissional = db.scalars(select(Professional).limit(1)).first()
+    marcacao = _marcacao(profissional, 72)
+    db.add(marcacao)
+    db.flush()
+
+    inicio, fim = marcacao.starts_at, marcacao.ends_at
+    assert has_booking_conflict(db, profissional, inicio, fim)
+    assert not has_booking_conflict(
+        db, profissional, inicio, fim, exclude_booking_id=marcacao.id
+    )
+
+    db.delete(marcacao)
+    db.flush()
